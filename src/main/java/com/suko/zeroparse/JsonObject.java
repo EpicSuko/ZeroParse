@@ -1,7 +1,7 @@
 package com.suko.zeroparse;
 
 import com.suko.zeroparse.stack.AstStore;
-import java.util.HashMap;
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -11,9 +11,6 @@ import java.util.NoSuchElementException;
  * 
  * <p>This class uses AST-backed lazy evaluation for efficient parsing
  * without materializing all fields upfront.</p>
- * 
- * <p>Field lookups are cached after first access to avoid repeated
- * AST traversal for frequently accessed fields.</p>
  */
 public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice, JsonValue>> {
     
@@ -26,8 +23,38 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     private int[] fieldIndices;
     private boolean fieldIndexBuilt = false;
     
-    // Field value cache (lazy init for memory efficiency)
-    private Map<String, JsonValue> fieldCache;
+    /**
+     * ThreadLocal cache for field name byte arrays to avoid repeated String.getBytes() calls.
+     * Uses a simple LRU-style cache with 8 slots (covers most common field names).
+     */
+    private static final ThreadLocal<FieldNameCache> FIELD_NAME_CACHE = 
+        ThreadLocal.withInitial(FieldNameCache::new);
+    
+    /**
+     * Simple cache for field name byte arrays (avoids String.getBytes overhead).
+     */
+    private static final class FieldNameCache {
+        private static final int CACHE_SIZE = 8;
+        private final String[] keys = new String[CACHE_SIZE];
+        private final byte[][] values = new byte[CACHE_SIZE][];
+        private int nextSlot = 0;
+        
+        byte[] getBytes(String name) {
+            // Fast path: check cache
+            for (int i = 0; i < CACHE_SIZE; i++) {
+                if (name.equals(keys[i])) {
+                    return values[i];
+                }
+            }
+            
+            // Cache miss: compute and store
+            byte[] bytes = name.getBytes(StandardCharsets.UTF_8);
+            keys[nextSlot] = name;
+            values[nextSlot] = bytes;
+            nextSlot = (nextSlot + 1) % CACHE_SIZE;
+            return bytes;
+        }
+    }
     
     /**
      * Create a new JsonObject backed by AST.
@@ -66,29 +93,10 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
             return null;
         }
         
-        // Check cache first (lazy init)
-        if (fieldCache != null) {
-            JsonValue cached = fieldCache.get(name);
-            if (cached != null) {
-                return cached;
-            }
-        }
-        
-        // Not in cache, do full lookup
-        byte[] nameBytes = name.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        Utf8Slice nameSlice = new Utf8Slice(nameBytes, 0, nameBytes.length);
-        JsonValue result = get(nameSlice);
-        
-        // Cache the result if found
-        if (result != null) {
-            if (fieldCache == null) {
-                // Lazy init with small capacity (most objects have few fields)
-                fieldCache = new HashMap<>(4);
-            }
-            fieldCache.put(name, result);
-        }
-        
-        return result;
+        // Use cached byte array to avoid repeated String.getBytes() calls
+        byte[] nameBytes = FIELD_NAME_CACHE.get().getBytes(name);
+        Utf8Slice nameSlice = Utf8Slice.temporary(nameBytes, 0, nameBytes.length);
+        return get(nameSlice);
     }
     
     public JsonValue get(Utf8Slice name) {

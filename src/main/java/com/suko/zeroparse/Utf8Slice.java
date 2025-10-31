@@ -14,9 +14,25 @@ import java.nio.charset.StandardCharsets;
  */
 public final class Utf8Slice {
     
-    private final byte[] source;
-    private final int offset;
-    private final int length;
+    private byte[] source;
+    private int offset;
+    private int length;
+    
+    /**
+     * ThreadLocal pool for temporary Utf8Slice instances used during field lookups.
+     * Reduces allocation overhead for transient slice operations.
+     */
+    private static final ThreadLocal<Utf8Slice> TEMP_SLICE_POOL = 
+        ThreadLocal.withInitial(Utf8Slice::new);
+    
+    /**
+     * Private constructor for pooled instances.
+     */
+    private Utf8Slice() {
+        this.source = null;
+        this.offset = 0;
+        this.length = 0;
+    }
     
     /**
      * Create a new UTF-8 slice.
@@ -35,6 +51,25 @@ public final class Utf8Slice {
         this.source = source;
         this.offset = offset;
         this.length = length;
+    }
+    
+    /**
+     * Get a temporary Utf8Slice from the ThreadLocal pool for short-lived operations.
+     * 
+     * <p><b>WARNING:</b> The returned slice is NOT thread-safe and MUST NOT be stored
+     * or used across method boundaries. It's only valid until the next call to this method.</p>
+     * 
+     * @param source the source byte array
+     * @param offset the starting offset
+     * @param length the length of the slice
+     * @return a temporary Utf8Slice (do not store!)
+     */
+    static Utf8Slice temporary(byte[] source, int offset, int length) {
+        Utf8Slice temp = TEMP_SLICE_POOL.get();
+        temp.source = source;
+        temp.offset = offset;
+        temp.length = length;
+        return temp;
     }
     
     /**
