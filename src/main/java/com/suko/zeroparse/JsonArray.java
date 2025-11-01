@@ -12,10 +12,13 @@ import java.util.NoSuchElementException;
  */
 public final class JsonArray implements JsonValue, Iterable<JsonValue> {
     
-    // AST backing
-    protected final AstStore astStore;
-    protected final int nodeIndex;
-    protected final InputCursor cursor;
+    // AST backing (mutable for pooling)
+    protected AstStore astStore;
+    protected int nodeIndex;
+    protected InputCursor cursor;
+    
+    // Optional parse context for pooled view creation
+    JsonParseContext context;
     
     // Lazy element index cache
     private int[] elementIndices;
@@ -32,6 +35,52 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
         this.astStore = astStore;
         this.nodeIndex = nodeIndex;
         this.cursor = cursor;
+    }
+    
+    /**
+     * Default constructor for object pooling.
+     */
+    JsonArray() {
+        this.astStore = null;
+        this.nodeIndex = 0;
+        this.cursor = null;
+    }
+    
+    /**
+     * Reset this array for reuse from the pool.
+     * Called by the pool's reset action.
+     */
+    void reset(AstStore astStore, int nodeIndex, InputCursor cursor) {
+        this.astStore = astStore;
+        this.nodeIndex = nodeIndex;
+        this.cursor = cursor;
+        this.context = null;
+        this.elementIndexBuilt = false;
+        this.elementIndices = null;
+    }
+    
+    /**
+     * Reset this array with a parse context for pooled sub-view creation.
+     */
+    void reset(AstStore astStore, int nodeIndex, InputCursor cursor, JsonParseContext context) {
+        this.astStore = astStore;
+        this.nodeIndex = nodeIndex;
+        this.cursor = cursor;
+        this.context = context;
+        this.elementIndexBuilt = false;
+        this.elementIndices = null;
+    }
+    
+    /**
+     * Reset this array to null state (for pool reset action).
+     */
+    void reset() {
+        this.astStore = null;
+        this.nodeIndex = 0;
+        this.cursor = null;
+        this.context = null;
+        this.elementIndexBuilt = false;
+        this.elementIndices = null;
     }
     
     @Override
@@ -186,6 +235,19 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
     private JsonValue createValueView(int valueIndex) {
         byte type = astStore.getType(valueIndex);
         
+        // If we have a context, use pooled views
+        if (context != null) {
+            JsonValue view = context.borrowView(type, astStore, valueIndex, cursor);
+            // Pass context to nested objects/arrays for recursive pooling
+            if (view instanceof JsonObject) {
+                ((JsonObject) view).context = context;
+            } else if (view instanceof JsonArray) {
+                ((JsonArray) view).context = context;
+            }
+            return view;
+        }
+        
+        // Fallback to direct allocation (backward compatibility)
         switch (type) {
             case AstStore.TYPE_OBJECT:
                 return new JsonObject(astStore, valueIndex, cursor);

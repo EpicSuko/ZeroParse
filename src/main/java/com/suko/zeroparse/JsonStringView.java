@@ -10,10 +10,10 @@ import com.suko.zeroparse.stack.AstStore;
  */
 public final class JsonStringView implements JsonValue {
     
-    // AST backing
-    protected final AstStore astStore;
-    protected final int nodeIndex;
-    protected final InputCursor cursor;
+    // AST backing (mutable for pooling)
+    protected AstStore astStore;
+    protected int nodeIndex;
+    protected InputCursor cursor;
     
     // Direct slice constructor for substring operations
     private Utf8Slice directSlice;
@@ -40,6 +40,37 @@ public final class JsonStringView implements JsonValue {
         this.nodeIndex = -1;
         this.cursor = null;
         this.directSlice = slice;
+    }
+    
+    /**
+     * Default constructor for object pooling.
+     */
+    JsonStringView() {
+        this.astStore = null;
+        this.nodeIndex = 0;
+        this.cursor = null;
+        this.directSlice = null;
+    }
+    
+    /**
+     * Reset this string view for reuse from the pool.
+     * Called by the pool's reset action.
+     */
+    void reset(AstStore astStore, int nodeIndex, InputCursor cursor) {
+        this.astStore = astStore;
+        this.nodeIndex = nodeIndex;
+        this.cursor = cursor;
+        this.directSlice = null;
+    }
+    
+    /**
+     * Reset this string view to null state (for pool reset action).
+     */
+    void reset() {
+        this.astStore = null;
+        this.nodeIndex = 0;
+        this.cursor = null;
+        this.directSlice = null;
     }
     
     @Override
