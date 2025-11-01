@@ -66,3 +66,7 @@ buildNumber.properties
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,java,maven
+
+Allocation_Hot_Spots*.csv
+Call_Tree*.xml
+Recorded_Objects*.csv
