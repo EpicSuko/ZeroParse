@@ -69,4 +69,5 @@ buildNumber.properties
 
 Allocation_Hot_Spots*.csv
 Call_Tree*.xml
+Hot_Spots*.xml
 Recorded_Objects*.csv
