@@ -13,6 +13,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 import com.suko.zeroparse.JsonParser;
 import com.suko.zeroparse.JsonValue;
 import com.suko.zeroparse.JsonObject;
+import com.suko.zeroparse.JsonParseContext;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 
@@ -227,6 +228,68 @@ public class MemoryBenchmark {
         for (int i = 0; i < 10; i++) {
             bh.consume(obj.getString("action"));
             bh.consume(obj.getLong("ts"));
+        }
+    }
+    
+    // ===== POOLED PARSING BENCHMARKS (Garbage-Free with JsonParseContext) =====
+    
+    @Benchmark
+    public JsonValue zeroparseSmallPooled(Blackhole bh) {
+        try (JsonParseContext ctx = JsonParseContext.get()) {
+            return ctx.parse(smallBuffer);
+        }
+    }
+    
+    @Benchmark
+    public JsonValue zeroparseMediumPooled(Blackhole bh) {
+        try (JsonParseContext ctx = JsonParseContext.get()) {
+            return ctx.parse(testBuffer);
+        }
+    }
+    
+    @Benchmark
+    public JsonValue zeroparseLargePooled(Blackhole bh) {
+        try (JsonParseContext ctx = JsonParseContext.get()) {
+            return ctx.parse(largeBuffer);
+        }
+    }
+    
+    @Benchmark
+    public void zeroparseSmallPooledParseAndAccess(Blackhole bh) {
+        try (JsonParseContext ctx = JsonParseContext.get()) {
+            JsonValue root = ctx.parse(smallBuffer);
+            if (root.isObject()) {
+                JsonObject obj = root.asObject();
+                bh.consume(obj.get("action"));
+                bh.consume(obj.get("data"));
+            }
+        }
+    }
+    
+    @Benchmark
+    public void zeroparseMediumPooledParseAndAccess(Blackhole bh) {
+        try (JsonParseContext ctx = JsonParseContext.get()) {
+            JsonValue root = ctx.parse(testBuffer);
+            if (root.isObject()) {
+                JsonObject obj = root.asObject();
+                bh.consume(obj.get("action"));
+                bh.consume(obj.get("data"));
+            }
+        }
+    }
+    
+    @Benchmark
+    public void zeroparsePooledRepeatedFieldAccess(Blackhole bh) {
+        try (JsonParseContext ctx = JsonParseContext.get()) {
+            JsonValue root = ctx.parse(testBuffer);
+            if (root.isObject()) {
+                JsonObject obj = root.asObject();
+                // Access same fields multiple times
+                for (int i = 0; i < 10; i++) {
+                    bh.consume(obj.get("action"));
+                    bh.consume(obj.get("ts"));
+                }
+            }
         }
     }
     

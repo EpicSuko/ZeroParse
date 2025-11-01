@@ -11,6 +11,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 import com.suko.zeroparse.JsonParser;
 import com.suko.zeroparse.JsonValue;
+import com.suko.zeroparse.JsonParseContext;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 
@@ -82,6 +83,29 @@ public class ZeroParseBenchmark {
     @Benchmark
     public me.doubledutch.lazyjson.LazyObject lazyjsonParseFromString() {
         return new LazyObject(testString);
+    }
+    
+    // ===== POOLED PARSING BENCHMARKS (Garbage-Free with JsonParseContext) =====
+    
+    @Benchmark
+    public JsonValue parseFromBufferPooled() {
+        try (JsonParseContext ctx = JsonParseContext.get()) {
+            return ctx.parse(testBuffer);
+        }
+    }
+    
+    @Benchmark
+    public JsonValue parseFromStringPooled() {
+        try (JsonParseContext ctx = JsonParseContext.get()) {
+            return ctx.parse(testString);
+        }
+    }
+    
+    @Benchmark
+    public JsonValue parseFromByteArrayPooled() {
+        try (JsonParseContext ctx = JsonParseContext.get()) {
+            return ctx.parse(testBytes);
+        }
     }
     
     public static void main(String[] args) throws RunnerException {
