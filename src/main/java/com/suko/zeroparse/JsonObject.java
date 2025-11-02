@@ -1,7 +1,6 @@
 package com.suko.zeroparse;
 
 import com.suko.zeroparse.stack.AstStore;
-import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -26,38 +25,6 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     private int[] fieldIndices;
     private boolean fieldIndexBuilt = false;
     
-    /**
-     * ThreadLocal cache for field name byte arrays to avoid repeated String.getBytes() calls.
-     * Uses a simple LRU-style cache with 8 slots (covers most common field names).
-     */
-    private static final ThreadLocal<FieldNameCache> FIELD_NAME_CACHE = 
-        ThreadLocal.withInitial(FieldNameCache::new);
-    
-    /**
-     * Simple cache for field name byte arrays (avoids String.getBytes overhead).
-     */
-    private static final class FieldNameCache {
-        private static final int CACHE_SIZE = 8;
-        private final String[] keys = new String[CACHE_SIZE];
-        private final byte[][] values = new byte[CACHE_SIZE][];
-        private int nextSlot = 0;
-        
-        byte[] getBytes(String name) {
-            // Fast path: check cache
-            for (int i = 0; i < CACHE_SIZE; i++) {
-                if (name.equals(keys[i])) {
-                    return values[i];
-                }
-            }
-            
-            // Cache miss: compute and store
-            byte[] bytes = name.getBytes(StandardCharsets.UTF_8);
-            keys[nextSlot] = name;
-            values[nextSlot] = bytes;
-            nextSlot = (nextSlot + 1) % CACHE_SIZE;
-            return bytes;
-        }
-    }
     
     /**
      * Create a new JsonObject backed by AST.
@@ -142,10 +109,30 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
             return null;
         }
         
-        // Use cached byte array to avoid repeated String.getBytes() calls
-        byte[] nameBytes = FIELD_NAME_CACHE.get().getBytes(name);
-        Utf8Slice nameSlice = Utf8Slice.temporary(nameBytes, 0, nameBytes.length);
-        return get(nameSlice);
+        // Use built-in String.hashCode() - matches our precomputed hash!
+        int queryHash = name.hashCode();
+        
+        int childIndex = astStore.getFirstChild(nodeIndex);
+        while (childIndex != -1) {
+            // Each field has two children: name and value
+            int nameIndex = astStore.getFirstChild(childIndex);
+            int valueIndex = astStore.getNextSibling(nameIndex);
+            
+            if (nameIndex != -1 && astStore.getType(nameIndex) == AstStore.TYPE_STRING) {
+                // FAST PATH: hashcode comparison first (single int comparison, no allocations!)
+                if (astStore.getHashCode(nameIndex) == queryHash) {
+                    // Hash match - verify with character comparison (handles collisions)
+                    if (matchesString(nameIndex, name)) {
+                        return createValueView(valueIndex);
+                    }
+                }
+                // Hash mismatch - skip immediately
+            }
+            
+            childIndex = astStore.getNextSibling(childIndex);
+        }
+        
+        return null;
     }
     
     public JsonValue get(Utf8Slice name) {
@@ -310,6 +297,86 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         int start = astStore.getStart(nameIndex);
         int length = astStore.getEnd(nameIndex) - start;
         return cursor.slice(start, length);
+    }
+    
+    /**
+     * Compare a field name against a String by decoding UTF-8 on-the-fly.
+     * This avoids allocating a Utf8Slice or byte[] for comparison.
+     * 
+     * @param nameIndex the AST node index of the field name
+     * @param queryString the String to compare against
+     * @return true if the field name matches the string
+     */
+    private boolean matchesString(int nameIndex, String queryString) {
+        int start = astStore.getStart(nameIndex);
+        int end = astStore.getEnd(nameIndex);
+        
+        int bytePos = start;
+        int charPos = 0;
+        
+        while (bytePos < end && charPos < queryString.length()) {
+            byte b = cursor.byteAt(bytePos);
+            char expectedChar = queryString.charAt(charPos);
+            
+            if ((b & 0x80) == 0) {
+                // ASCII (1 byte) - fast path
+                if ((char) b != expectedChar) {
+                    return false;
+                }
+                bytePos++;
+                charPos++;
+            } else if ((b & 0xE0) == 0xC0) {
+                // 2-byte UTF-8 sequence
+                if (bytePos + 1 >= end) {
+                    return false;
+                }
+                int codePoint = ((b & 0x1F) << 6) | (cursor.byteAt(bytePos + 1) & 0x3F);
+                if ((char) codePoint != expectedChar) {
+                    return false;
+                }
+                bytePos += 2;
+                charPos++;
+            } else if ((b & 0xF0) == 0xE0) {
+                // 3-byte UTF-8 sequence
+                if (bytePos + 2 >= end) {
+                    return false;
+                }
+                int codePoint = ((b & 0x0F) << 12) 
+                              | ((cursor.byteAt(bytePos + 1) & 0x3F) << 6)
+                              | (cursor.byteAt(bytePos + 2) & 0x3F);
+                if ((char) codePoint != expectedChar) {
+                    return false;
+                }
+                bytePos += 3;
+                charPos++;
+            } else {
+                // 4-byte UTF-8 sequence (rare, produces surrogate pair)
+                if (bytePos + 3 >= end) {
+                    return false;
+                }
+                int codePoint = ((b & 0x07) << 18)
+                              | ((cursor.byteAt(bytePos + 1) & 0x3F) << 12)
+                              | ((cursor.byteAt(bytePos + 2) & 0x3F) << 6)
+                              | (cursor.byteAt(bytePos + 3) & 0x3F);
+                
+                // Check surrogate pair
+                int high = ((codePoint >> 10) + 0xD7C0);
+                int low = ((codePoint & 0x3FF) + 0xDC00);
+                
+                if (charPos >= queryString.length() || (char) high != queryString.charAt(charPos)) {
+                    return false;
+                }
+                charPos++;
+                if (charPos >= queryString.length() || (char) low != queryString.charAt(charPos)) {
+                    return false;
+                }
+                charPos++;
+                bytePos += 4;
+            }
+        }
+        
+        // Both must be exhausted for a match
+        return bytePos == end && charPos == queryString.length();
     }
     
     private JsonValue createValueView(int valueIndex) {

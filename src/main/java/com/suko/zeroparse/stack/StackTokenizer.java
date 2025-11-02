@@ -179,8 +179,8 @@ public final class StackTokenizer {
                 currentOffset++; // Skip comma
                 expectValue = true;
             } else if (b == CH_QUOTE) {
-                // Parse field name
-                int fieldNameIndex = parseString();
+                // Parse field name WITH HASH COMPUTATION (for fast lookups)
+                int fieldNameIndex = parseString(true);
                 
                 // Expect colon
                 skipWhitespace();
@@ -316,48 +316,180 @@ public final class StackTokenizer {
     }
     
     private int parseString() throws JsonParseException {
+        return parseString(false);
+    }
+    
+    private int parseString(boolean computeHash) throws JsonParseException {
         int start = currentOffset;
         int offset = currentOffset + 1; // Skip opening quote
         final int length = inputLength;
         boolean escaped = false;
+        int hashCode = 0;
         
-        // Find the end of the string, handling escapes
+        // Find the end of the string, optionally computing hashcode
         // Optimized tight loop with direct byte access for maximum performance
         if (fastBytes != null) {
             // Fast path: direct array access
             final byte[] bytes = fastBytes;
             final int baseOffset = fastBytesOffset;
-            while (offset < length) {
-                byte b = bytes[baseOffset + offset];
-                if (b == CH_QUOTE) {
-                    currentOffset = offset + 1;
-                    int flags = escaped ? AstStore.FLAG_STRING_ESCAPED : 0;
-                    return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags);
-                } else if (b == CH_BACKSLASH) {
-                    offset++;
-                    if (offset >= length) {
-                        throw new JsonParseException("Incomplete escape sequence", offset);
+            
+            if (computeHash) {
+                // Hash computation path (for field names only)
+                while (offset < length) {
+                    byte b = bytes[baseOffset + offset];
+                    if (b == CH_QUOTE) {
+                        currentOffset = offset + 1;
+                        int flags = escaped ? AstStore.FLAG_STRING_ESCAPED : 0;
+                        return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags, hashCode);
+                    } else if (b == CH_BACKSLASH) {
+                        offset++;
+                        if (offset >= length) {
+                            throw new JsonParseException("Incomplete escape sequence", offset);
+                        }
+                        // For escaped strings, compute hash of the escape sequence bytes
+                        hashCode = 31 * hashCode + bytes[baseOffset + offset];
+                        escaped = true;
+                        offset++;
+                    } else {
+                        // Decode UTF-8 and hash the character value (matches String.hashCode())
+                        if ((b & 0x80) == 0) {
+                            // ASCII (1 byte) - fast path
+                            hashCode = 31 * hashCode + b;
+                            offset++;
+                        } else if ((b & 0xE0) == 0xC0) {
+                            // 2-byte sequence
+                            if (offset + 1 >= length) {
+                                throw new JsonParseException("Invalid UTF-8 sequence", offset);
+                            }
+                            int codePoint = ((b & 0x1F) << 6) | (bytes[baseOffset + offset + 1] & 0x3F);
+                            hashCode = 31 * hashCode + codePoint;
+                            offset += 2;
+                        } else if ((b & 0xF0) == 0xE0) {
+                            // 3-byte sequence
+                            if (offset + 2 >= length) {
+                                throw new JsonParseException("Invalid UTF-8 sequence", offset);
+                            }
+                            int codePoint = ((b & 0x0F) << 12) 
+                                          | ((bytes[baseOffset + offset + 1] & 0x3F) << 6)
+                                          | (bytes[baseOffset + offset + 2] & 0x3F);
+                            hashCode = 31 * hashCode + codePoint;
+                            offset += 3;
+                        } else {
+                            // 4-byte sequence (rare, produces surrogate pair)
+                            if (offset + 3 >= length) {
+                                throw new JsonParseException("Invalid UTF-8 sequence", offset);
+                            }
+                            int codePoint = ((b & 0x07) << 18)
+                                          | ((bytes[baseOffset + offset + 1] & 0x3F) << 12)
+                                          | ((bytes[baseOffset + offset + 2] & 0x3F) << 6)
+                                          | (bytes[baseOffset + offset + 3] & 0x3F);
+                            // Hash as surrogate pair (matches String.hashCode())
+                            int high = ((codePoint >> 10) + 0xD7C0);
+                            int low = ((codePoint & 0x3FF) + 0xDC00);
+                            hashCode = 31 * hashCode + high;
+                            hashCode = 31 * hashCode + low;
+                            offset += 4;
+                        }
                     }
-                    escaped = true;
                 }
-                offset++;
+            } else {
+                // Fast path without hash computation (for string values)
+                while (offset < length) {
+                    byte b = bytes[baseOffset + offset];
+                    if (b == CH_QUOTE) {
+                        currentOffset = offset + 1;
+                        int flags = escaped ? AstStore.FLAG_STRING_ESCAPED : 0;
+                        return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags);
+                    } else if (b == CH_BACKSLASH) {
+                        offset++;
+                        if (offset >= length) {
+                            throw new JsonParseException("Incomplete escape sequence", offset);
+                        }
+                        escaped = true;
+                        offset++;
+                    } else {
+                        offset++;
+                    }
+                }
             }
         } else {
             // Slow path: cursor access
-            while (offset < length) {
-                byte b = cursor.byteAt(offset);
-                if (b == CH_QUOTE) {
-                    currentOffset = offset + 1;
-                    int flags = escaped ? AstStore.FLAG_STRING_ESCAPED : 0;
-                    return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags);
-                } else if (b == CH_BACKSLASH) {
-                    offset++;
-                    if (offset >= length) {
-                        throw new JsonParseException("Incomplete escape sequence", offset);
+            if (computeHash) {
+                // Hash computation path
+                while (offset < length) {
+                    byte b = cursor.byteAt(offset);
+                    if (b == CH_QUOTE) {
+                        currentOffset = offset + 1;
+                        int flags = escaped ? AstStore.FLAG_STRING_ESCAPED : 0;
+                        return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags, hashCode);
+                    } else if (b == CH_BACKSLASH) {
+                        offset++;
+                        if (offset >= length) {
+                            throw new JsonParseException("Incomplete escape sequence", offset);
+                        }
+                        hashCode = 31 * hashCode + cursor.byteAt(offset);
+                        escaped = true;
+                        offset++;
+                    } else {
+                        // Decode UTF-8 and hash the character value
+                        if ((b & 0x80) == 0) {
+                            // ASCII (1 byte)
+                            hashCode = 31 * hashCode + b;
+                            offset++;
+                        } else if ((b & 0xE0) == 0xC0) {
+                            // 2-byte sequence
+                            if (offset + 1 >= length) {
+                                throw new JsonParseException("Invalid UTF-8 sequence", offset);
+                            }
+                            int codePoint = ((b & 0x1F) << 6) | (cursor.byteAt(offset + 1) & 0x3F);
+                            hashCode = 31 * hashCode + codePoint;
+                            offset += 2;
+                        } else if ((b & 0xF0) == 0xE0) {
+                            // 3-byte sequence
+                            if (offset + 2 >= length) {
+                                throw new JsonParseException("Invalid UTF-8 sequence", offset);
+                            }
+                            int codePoint = ((b & 0x0F) << 12) 
+                                          | ((cursor.byteAt(offset + 1) & 0x3F) << 6)
+                                          | (cursor.byteAt(offset + 2) & 0x3F);
+                            hashCode = 31 * hashCode + codePoint;
+                            offset += 3;
+                        } else {
+                            // 4-byte sequence (rare)
+                            if (offset + 3 >= length) {
+                                throw new JsonParseException("Invalid UTF-8 sequence", offset);
+                            }
+                            int codePoint = ((b & 0x07) << 18)
+                                          | ((cursor.byteAt(offset + 1) & 0x3F) << 12)
+                                          | ((cursor.byteAt(offset + 2) & 0x3F) << 6)
+                                          | (cursor.byteAt(offset + 3) & 0x3F);
+                            int high = ((codePoint >> 10) + 0xD7C0);
+                            int low = ((codePoint & 0x3FF) + 0xDC00);
+                            hashCode = 31 * hashCode + high;
+                            hashCode = 31 * hashCode + low;
+                            offset += 4;
+                        }
                     }
-                    escaped = true;
                 }
-                offset++;
+            } else {
+                // Fast path without hash computation
+                while (offset < length) {
+                    byte b = cursor.byteAt(offset);
+                    if (b == CH_QUOTE) {
+                        currentOffset = offset + 1;
+                        int flags = escaped ? AstStore.FLAG_STRING_ESCAPED : 0;
+                        return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags);
+                    } else if (b == CH_BACKSLASH) {
+                        offset++;
+                        if (offset >= length) {
+                            throw new JsonParseException("Incomplete escape sequence", offset);
+                        }
+                        escaped = true;
+                        offset++;
+                    } else {
+                        offset++;
+                    }
+                }
             }
         }
         
