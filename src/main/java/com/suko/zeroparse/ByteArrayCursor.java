@@ -5,12 +5,15 @@ package com.suko.zeroparse;
  * 
  * <p>This implementation provides efficient access to byte array data
  * with zero-copy slice operations.</p>
+ * 
+ * <p>The cursor is mutable and can be reset for reuse with different arrays,
+ * making it suitable for object pooling.</p>
  */
 public final class ByteArrayCursor implements InputCursor {
     
-    private final byte[] data;
-    private final int offset;
-    private final int length;
+    private byte[] data;
+    private int offset;
+    private int length;
     
     /**
      * Create a new ByteArrayCursor for the entire array.
@@ -29,6 +32,26 @@ public final class ByteArrayCursor implements InputCursor {
      * @param length the length to read
      */
     public ByteArrayCursor(byte[] data, int offset, int length) {
+        reset(data, offset, length);
+    }
+    
+    /**
+     * Default constructor for object pooling.
+     */
+    ByteArrayCursor() {
+        this.data = null;
+        this.offset = 0;
+        this.length = 0;
+    }
+    
+    /**
+     * Reset this cursor for reuse with a different byte array.
+     * 
+     * @param data the byte array to read from
+     * @param offset the starting offset
+     * @param length the length to read
+     */
+    public void reset(byte[] data, int offset, int length) {
         if (data == null) {
             throw new IllegalArgumentException("Data cannot be null");
         }
@@ -38,6 +61,15 @@ public final class ByteArrayCursor implements InputCursor {
         this.data = data;
         this.offset = offset;
         this.length = length;
+    }
+    
+    /**
+     * Reset this cursor to null state (for pool reset action).
+     */
+    void reset() {
+        this.data = null;
+        this.offset = 0;
+        this.length = 0;
     }
     
     @Override

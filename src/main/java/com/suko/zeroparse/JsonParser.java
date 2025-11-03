@@ -28,6 +28,7 @@ public final class JsonParser {
     
     /**
      * Parse JSON from a Vert.x Buffer.
+     * Uses a pooled BufferCursor for zero-allocation parsing.
      * 
      * @param buffer the Buffer containing UTF-8 encoded JSON
      * @return the parsed JSON value
@@ -37,11 +38,18 @@ public final class JsonParser {
         if (buffer == null) {
             throw new IllegalArgumentException("Buffer cannot be null");
         }
-        return parse(new BufferCursor(buffer));
+        // Use pooled cursor to avoid buffer.getBytes() allocation
+        BufferCursor cursor = CursorPools.borrowBufferCursor(buffer);
+        try {
+            return parse(cursor);
+        } finally {
+            CursorPools.returnBufferCursor(cursor);
+        }
     }
     
     /**
      * Parse JSON from a byte array.
+     * Uses a pooled ByteArrayCursor for zero-allocation parsing.
      * 
      * @param data the byte array containing UTF-8 encoded JSON
      * @param offset the starting offset in the array
@@ -56,7 +64,13 @@ public final class JsonParser {
         if (offset < 0 || length < 0 || offset + length > data.length) {
             throw new IllegalArgumentException("Invalid offset/length");
         }
-        return parse(new ByteArrayCursor(data, offset, length));
+        // Use pooled cursor for reuse
+        ByteArrayCursor cursor = CursorPools.borrowByteArrayCursor(data, offset, length);
+        try {
+            return parse(cursor);
+        } finally {
+            CursorPools.returnByteArrayCursor(cursor);
+        }
     }
     
     /**
@@ -132,6 +146,7 @@ public final class JsonParser {
     
     /**
      * Create a streaming array cursor for element-by-element extraction.
+     * Uses a pooled BufferCursor for zero-allocation parsing.
      * 
      * @param buffer the Buffer containing a JSON array
      * @return a cursor for streaming array elements
@@ -141,11 +156,18 @@ public final class JsonParser {
         if (buffer == null) {
             throw new IllegalArgumentException("Buffer cannot be null");
         }
-        return streamArray(new BufferCursor(buffer));
+        // Use pooled cursor to avoid buffer.getBytes() allocation
+        BufferCursor cursor = CursorPools.borrowBufferCursor(buffer);
+        try {
+            return streamArray(cursor);
+        } finally {
+            CursorPools.returnBufferCursor(cursor);
+        }
     }
     
     /**
      * Create a streaming array cursor for element-by-element extraction.
+     * Uses a pooled ByteArrayCursor for zero-allocation parsing.
      * 
      * @param data the byte array containing a JSON array
      * @param offset the starting offset in the array
@@ -160,7 +182,13 @@ public final class JsonParser {
         if (offset < 0 || length < 0 || offset + length > data.length) {
             throw new IllegalArgumentException("Invalid offset/length");
         }
-        return streamArray(new ByteArrayCursor(data, offset, length));
+        // Use pooled cursor for reuse
+        ByteArrayCursor cursor = CursorPools.borrowByteArrayCursor(data, offset, length);
+        try {
+            return streamArray(cursor);
+        } finally {
+            CursorPools.returnByteArrayCursor(cursor);
+        }
     }
     
     /**
