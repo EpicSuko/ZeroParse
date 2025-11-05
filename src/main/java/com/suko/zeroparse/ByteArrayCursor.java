@@ -94,6 +94,13 @@ public final class ByteArrayCursor implements InputCursor {
         if (start < 0 || sliceLength < 0 || start + sliceLength > length) {
             throw new IndexOutOfBoundsException("Invalid slice: start=" + start + ", length=" + sliceLength + ", cursorLength=" + length);
         }
+        
+        // Use pooled slice when in a parse context, otherwise allocate
+        JsonParseContext ctx = JsonParseContext.getActiveContext();
+        if (ctx != null) {
+            return ctx.borrowSlice(data, offset + start, sliceLength);
+        }
+        
         return new Utf8Slice(data, offset + start, sliceLength);
     }
     

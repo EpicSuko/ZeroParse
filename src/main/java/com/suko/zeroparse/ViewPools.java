@@ -24,11 +24,15 @@ public final class ViewPools {
     private static final int NUMBER_STRIPES = 4;
     private static final int NUMBER_STRIPE_SIZE = 128;
     
+    private static final int SLICE_STRIPES = 4;
+    private static final int SLICE_STRIPE_SIZE = 256;  // Slices are very common
+    
     // Striped pools for each view type
     private static final StripedObjectPool<JsonObject> OBJECT_POOL;
     private static final StripedObjectPool<JsonArray> ARRAY_POOL;
     private static final StripedObjectPool<JsonStringView> STRING_POOL;
     private static final StripedObjectPool<JsonNumberView> NUMBER_POOL;
+    private static final StripedObjectPool<Utf8Slice> SLICE_POOL;
     
     static {
         // Initialize striped pools with auto-grow enabled (instant growth, cooldown=0)
@@ -60,12 +64,20 @@ public final class ViewPools {
             NUMBER_STRIPE_SIZE
         );
         
+        SLICE_POOL = new StripedObjectPool<>(
+            Utf8Slice::new,
+            Utf8Slice::reset,
+            SLICE_STRIPES,
+            SLICE_STRIPE_SIZE
+        );
+        
         // Enable auto-grow with zero cooldown for instant capacity expansion
         AutoGrowConfig config = new AutoGrowConfig(1, 0, 1, 0);
         OBJECT_POOL.enableAutoGrow(config);
         ARRAY_POOL.enableAutoGrow(config);
         STRING_POOL.enableAutoGrow(config);
         NUMBER_POOL.enableAutoGrow(config);
+        SLICE_POOL.enableAutoGrow(config);
     }
     
     private ViewPools() {
@@ -98,6 +110,37 @@ public final class ViewPools {
      */
     public static JsonNumberView borrowNumber() {
         return NUMBER_POOL.acquire();
+    }
+    
+    /**
+     * Borrow a Utf8Slice from the pool.
+     * The slice is returned uninitialized - caller must call reset().
+     */
+    public static Utf8Slice borrowSlice() {
+        return SLICE_POOL.acquire();
+    }
+    
+    /**
+     * Borrow a Utf8Slice from the pool and initialize it.
+     * 
+     * @param source the source byte array
+     * @param offset the starting offset
+     * @param length the length of the slice
+     * @return a pooled and initialized Utf8Slice
+     */
+    public static Utf8Slice borrowSlice(byte[] source, int offset, int length) {
+        Utf8Slice slice = SLICE_POOL.acquire();
+        slice.reset(source, offset, length);
+        return slice;
+    }
+    
+    /**
+     * Return a Utf8Slice back to the pool.
+     */
+    public static void returnSlice(Utf8Slice slice) {
+        if (slice != null) {
+            SLICE_POOL.release(slice);
+        }
     }
     
     /**

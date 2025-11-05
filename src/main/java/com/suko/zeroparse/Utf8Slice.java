@@ -26,9 +26,9 @@ public final class Utf8Slice {
         ThreadLocal.withInitial(Utf8Slice::new);
     
     /**
-     * Private constructor for pooled instances.
+     * Package-private constructor for pooled instances.
      */
-    private Utf8Slice() {
+    Utf8Slice() {
         this.source = null;
         this.offset = 0;
         this.length = 0;
@@ -51,6 +51,35 @@ public final class Utf8Slice {
         this.source = source;
         this.offset = offset;
         this.length = length;
+    }
+    
+    /**
+     * Reset this slice for reuse from the pool.
+     * Called by the pool's reset action.
+     * 
+     * @param source the source byte array
+     * @param offset the starting offset
+     * @param length the length of the slice
+     */
+    void reset(byte[] source, int offset, int length) {
+        if (source == null) {
+            throw new IllegalArgumentException("Source cannot be null");
+        }
+        if (offset < 0 || length < 0 || offset + length > source.length) {
+            throw new IllegalArgumentException("Invalid offset/length");
+        }
+        this.source = source;
+        this.offset = offset;
+        this.length = length;
+    }
+    
+    /**
+     * Reset this slice to null state (for pool reset action).
+     */
+    void reset() {
+        this.source = null;
+        this.offset = 0;
+        this.length = 0;
     }
     
     /**

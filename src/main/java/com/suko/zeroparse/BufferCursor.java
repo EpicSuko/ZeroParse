@@ -111,6 +111,12 @@ public final class BufferCursor implements InputCursor {
             throw new IndexOutOfBoundsException("Invalid slice: start=" + start + ", length=" + length + ", bufferLength=" + this.length);
         }
         
+        // Use pooled slice when in a parse context, otherwise allocate
+        JsonParseContext ctx = JsonParseContext.getActiveContext();
+        if (ctx != null) {
+            return ctx.borrowSlice(cachedBytes, offset + start, length);
+        }
+        
         // Zero-copy slice using the cached byte array with offset
         return new Utf8Slice(cachedBytes, offset + start, length);
     }

@@ -45,6 +45,7 @@ public final class JsonParseContext implements AutoCloseable {
     
     // Fixed-size array for small cases (most JSON has < 16 views)
     private static final int FIXED_CAPACITY = 16;
+    private static final int FIXED_SLICE_CAPACITY = 32;  // Slices are more common
     
     private final JsonParser parser;
     
@@ -54,6 +55,13 @@ public final class JsonParseContext implements AutoCloseable {
     
     // Overflow list for large cases (lazy allocated)
     private List<JsonValue> overflowViews;
+    
+    // Fixed array for slices (most JSON has < 32 slices)
+    private final Utf8Slice[] fixedSlices;
+    private int fixedSliceCount;
+    
+    // Overflow list for large cases (lazy allocated)
+    private List<Utf8Slice> overflowSlices;
     
     // Single-view fast path flag
     private boolean singleViewMode;
@@ -106,6 +114,9 @@ public final class JsonParseContext implements AutoCloseable {
         this.overflowViews = null;
         this.singleViewMode = false;
         this.singleView = null;
+        this.fixedSlices = new Utf8Slice[FIXED_SLICE_CAPACITY];
+        this.fixedSliceCount = 0;
+        this.overflowSlices = null;
     }
     
     /**
@@ -116,10 +127,14 @@ public final class JsonParseContext implements AutoCloseable {
         this.singleViewMode = false;
         this.singleView = null;
         this.active = false;  // Will be set to true by get()
+        this.fixedSliceCount = 0;
         // Note: Don't clear fixedViews array - we'll overwrite slots
         // Note: Don't null overflowViews - keep capacity for reuse
         if (overflowViews != null) {
             overflowViews.clear();
+        }
+        if (overflowSlices != null) {
+            overflowSlices.clear();
         }
     }
     
@@ -278,7 +293,34 @@ public final class JsonParseContext implements AutoCloseable {
     }
     
     /**
-     * Return all borrowed views back to the pool.
+     * Borrow a Utf8Slice from the pool and track it for automatic return.
+     * This is used internally during parsing to create slices with zero allocation.
+     */
+    Utf8Slice borrowSlice(byte[] source, int offset, int length) {
+        Utf8Slice slice = ViewPools.borrowSlice(source, offset, length);
+        trackSlice(slice);
+        return slice;
+    }
+    
+    /**
+     * Track a slice for automatic return on close.
+     */
+    private void trackSlice(Utf8Slice slice) {
+        // Fixed array fast path
+        if (fixedSliceCount < FIXED_SLICE_CAPACITY) {
+            fixedSlices[fixedSliceCount++] = slice;
+            return;
+        }
+        
+        // Overflow to ArrayList (rare for most JSON)
+        if (overflowSlices == null) {
+            overflowSlices = new ArrayList<>(64);
+        }
+        overflowSlices.add(slice);
+    }
+    
+    /**
+     * Return all borrowed views and slices back to the pool.
      * Called automatically by try-with-resources.
      */
     @Override
@@ -290,22 +332,37 @@ public final class JsonParseContext implements AutoCloseable {
                 singleView = null;
                 singleViewMode = false;
                 fixedCount = 0;
-                return;
-            }
-            
-            // Return views from fixed array
-            for (int i = 0; i < fixedCount; i++) {
-                ViewPools.returnView(fixedViews[i]);
-                fixedViews[i] = null;  // Help GC
-            }
-            fixedCount = 0;
-            
-            // Return views from overflow list
-            if (overflowViews != null && !overflowViews.isEmpty()) {
-                for (JsonValue view : overflowViews) {
-                    ViewPools.returnView(view);
+                // Note: Still need to return slices even in single-view mode
+            } else {
+                // Return views from fixed array
+                for (int i = 0; i < fixedCount; i++) {
+                    ViewPools.returnView(fixedViews[i]);
+                    fixedViews[i] = null;  // Help GC
                 }
-                overflowViews.clear();
+                fixedCount = 0;
+                
+                // Return views from overflow list
+                if (overflowViews != null && !overflowViews.isEmpty()) {
+                    for (JsonValue view : overflowViews) {
+                        ViewPools.returnView(view);
+                    }
+                    overflowViews.clear();
+                }
+            }
+            
+            // Return slices from fixed array
+            for (int i = 0; i < fixedSliceCount; i++) {
+                ViewPools.returnSlice(fixedSlices[i]);
+                fixedSlices[i] = null;  // Help GC
+            }
+            fixedSliceCount = 0;
+            
+            // Return slices from overflow list
+            if (overflowSlices != null && !overflowSlices.isEmpty()) {
+                for (Utf8Slice slice : overflowSlices) {
+                    ViewPools.returnSlice(slice);
+                }
+                overflowSlices.clear();
             }
         } finally {
             // Clear active flag (zero allocation)
@@ -326,6 +383,20 @@ public final class JsonParseContext implements AutoCloseable {
         int count = fixedCount;
         if (overflowViews != null) {
             count += overflowViews.size();
+        }
+        return count;
+    }
+    
+    /**
+     * Get the number of slices currently tracked by this context.
+     * Useful for debugging and monitoring.
+     * 
+     * @return the number of tracked slices
+     */
+    public int getTrackedSliceCount() {
+        int count = fixedSliceCount;
+        if (overflowSlices != null) {
+            count += overflowSlices.size();
         }
         return count;
     }

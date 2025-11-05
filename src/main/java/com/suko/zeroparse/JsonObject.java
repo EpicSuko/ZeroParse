@@ -25,6 +25,11 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     private int[] fieldIndices;
     private boolean fieldIndexBuilt = false;
     
+    // Field name slice cache (for repeated access optimization)
+    // Only used when in a pooled context to avoid leaks
+    private Utf8Slice[] cachedFieldNames;
+    private boolean fieldNamesCached = false;
+    
     
     /**
      * Create a new JsonObject backed by AST.
@@ -59,6 +64,8 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         this.context = null;
         this.fieldIndexBuilt = false;
         this.fieldIndices = null;
+        this.fieldNamesCached = false;
+        this.cachedFieldNames = null;
     }
     
     /**
@@ -71,6 +78,8 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         this.context = context;
         this.fieldIndexBuilt = false;
         this.fieldIndices = null;
+        this.fieldNamesCached = false;
+        this.cachedFieldNames = null;
     }
     
     /**
@@ -83,6 +92,8 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         this.context = null;
         this.fieldIndexBuilt = false;
         this.fieldIndices = null;
+        this.fieldNamesCached = false;
+        this.cachedFieldNames = null;
     }
     
     @Override
@@ -140,6 +151,29 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
             return null;
         }
         
+        // Fast path with lazy cache building (when in pooled context)
+        if (context != null) {
+            // Build index and cache on first access (amortized over repeated accesses)
+            if (!fieldIndexBuilt) {
+                buildFieldIndex();
+            }
+            if (!fieldNamesCached) {
+                cacheFieldNames();
+            }
+            
+            // Use cached slices - fast after first access
+            for (int i = 0; i < fieldIndices.length; i++) {
+                if (cachedFieldNames[i].equals(name)) {
+                    int childIndex = fieldIndices[i];
+                    int nameIndex = astStore.getFirstChild(childIndex);
+                    int valueIndex = astStore.getNextSibling(nameIndex);
+                    return createValueView(valueIndex);
+                }
+            }
+            return null;
+        }
+        
+        // Slow path for non-pooled context (creates slices on demand)
         int childIndex = astStore.getFirstChild(nodeIndex);
         while (childIndex != -1) {
             // Each field has two children: name and value
@@ -291,6 +325,29 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         }
         
         fieldIndexBuilt = true;
+    }
+    
+    /**
+     * Build cache of all field name slices for fast repeated access.
+     * Only called when in a pooled context.
+     */
+    private void cacheFieldNames() {
+        if (fieldNamesCached || context == null) {
+            return;
+        }
+        
+        buildFieldIndex();
+        cachedFieldNames = new Utf8Slice[fieldIndices.length];
+        
+        for (int i = 0; i < fieldIndices.length; i++) {
+            int childIndex = fieldIndices[i];
+            int nameIndex = astStore.getFirstChild(childIndex);
+            int start = astStore.getStart(nameIndex);
+            int length = astStore.getEnd(nameIndex) - start;
+            cachedFieldNames[i] = cursor.slice(start, length);
+        }
+        
+        fieldNamesCached = true;
     }
     
     private Utf8Slice createFieldNameSlice(int nameIndex) {

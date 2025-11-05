@@ -58,6 +58,13 @@ public final class StringCursor implements InputCursor {
         // For String input, we need to convert the substring to UTF-8 bytes
         String substring = string.substring(start, start + length);
         byte[] bytes = substring.getBytes(StandardCharsets.UTF_8);
+        
+        // Use pooled slice when in a parse context, otherwise allocate
+        JsonParseContext ctx = JsonParseContext.getActiveContext();
+        if (ctx != null) {
+            return ctx.borrowSlice(bytes, 0, bytes.length);
+        }
+        
         return new Utf8Slice(bytes, 0, bytes.length);
     }
     
