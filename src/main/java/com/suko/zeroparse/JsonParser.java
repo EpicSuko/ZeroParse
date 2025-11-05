@@ -108,6 +108,7 @@ public final class JsonParser {
     
     /**
      * Parse using stack-based tokenizer.
+     * Uses pooled views if JsonParseContext is active, otherwise allocates new objects.
      */
     private JsonValue parseWithStack(InputCursor cursor) {
         try {
@@ -118,15 +119,43 @@ public final class JsonParser {
             int rootIndex = astStore.getRoot();
             byte rootType = astStore.getType(rootIndex);
             
+            // Check if we're in a pooled context (simple flag check)
+            JsonParseContext context = JsonParseContext.getActiveContext();
+            boolean usePooling = (context != null);
+            
             switch (rootType) {
                 case AstStore.TYPE_OBJECT:
+                    if (usePooling) {
+                        JsonObject obj = ViewPools.borrowObject();
+                        obj.reset(astStore, rootIndex, cursor, context);
+                        return obj;
+                    }
                     return new JsonObject(astStore, rootIndex, cursor);
+                    
                 case AstStore.TYPE_ARRAY:
+                    if (usePooling) {
+                        JsonArray arr = ViewPools.borrowArray();
+                        arr.reset(astStore, rootIndex, cursor, context);
+                        return arr;
+                    }
                     return new JsonArray(astStore, rootIndex, cursor);
+                    
                 case AstStore.TYPE_STRING:
+                    if (usePooling) {
+                        JsonStringView str = ViewPools.borrowString();
+                        str.reset(astStore, rootIndex, cursor);
+                        return str;
+                    }
                     return new JsonStringView(astStore, rootIndex, cursor);
+                    
                 case AstStore.TYPE_NUMBER:
+                    if (usePooling) {
+                        JsonNumberView num = ViewPools.borrowNumber();
+                        num.reset(astStore, rootIndex, cursor);
+                        return num;
+                    }
                     return new JsonNumberView(astStore, rootIndex, cursor);
+                    
                 case AstStore.TYPE_BOOLEAN_TRUE:
                     return JsonBoolean.TRUE;
                 case AstStore.TYPE_BOOLEAN_FALSE:
@@ -240,7 +269,17 @@ public final class JsonParser {
                 throw new JsonParseException("Expected JSON array, got: " + AstStore.toJsonType(rootType), 0);
             }
             
-            JsonArray array = new JsonArray(astStore, rootIndex, cursor);
+            // Check if we're in a pooled context (simple flag check)
+            JsonParseContext context = JsonParseContext.getActiveContext();
+            JsonArray array;
+            
+            if (context != null) {
+                array = ViewPools.borrowArray();
+                array.reset(astStore, rootIndex, cursor, context);
+            } else {
+                array = new JsonArray(astStore, rootIndex, cursor);
+            }
+            
             return new JsonArrayCursor(cursor, array);
         } catch (Exception e) {
             if (e instanceof JsonParseException) {

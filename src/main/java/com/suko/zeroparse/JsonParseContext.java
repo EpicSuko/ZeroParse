@@ -59,6 +59,9 @@ public final class JsonParseContext implements AutoCloseable {
     private boolean singleViewMode;
     private JsonValue singleView;
     
+    // Active flag (cheaper than ThreadLocal lookup)
+    private boolean active;
+    
     /**
      * Get a pooled context from ThreadLocal storage.
      * This is the recommended way to obtain a context (zero allocation).
@@ -68,7 +71,19 @@ public final class JsonParseContext implements AutoCloseable {
     public static JsonParseContext get() {
         JsonParseContext ctx = CONTEXT_POOL.get();
         ctx.reset();
+        ctx.active = true;  // Mark as active
         return ctx;
+    }
+    
+    /**
+     * Get the currently active context for this thread, if any.
+     * Used internally by JsonParser to detect pooled vs non-pooled parsing.
+     * 
+     * @return the active context, or null if no context is active
+     */
+    static JsonParseContext getActiveContext() {
+        JsonParseContext ctx = CONTEXT_POOL.get();
+        return ctx.active ? ctx : null;
     }
     
     /**
@@ -100,6 +115,7 @@ public final class JsonParseContext implements AutoCloseable {
         this.fixedCount = 0;
         this.singleViewMode = false;
         this.singleView = null;
+        this.active = false;  // Will be set to true by get()
         // Note: Don't clear fixedViews array - we'll overwrite slots
         // Note: Don't null overflowViews - keep capacity for reuse
         if (overflowViews != null) {
@@ -219,8 +235,9 @@ public final class JsonParseContext implements AutoCloseable {
     
     /**
      * Track a view for automatic return on close.
+     * Package-private for use by JsonParser.
      */
-    private void trackView(JsonValue view) {
+    void trackView(JsonValue view) {
         if (view != null && !(view instanceof JsonBoolean) && !(view instanceof JsonNull)) {
             addView(view);
         }
@@ -266,28 +283,33 @@ public final class JsonParseContext implements AutoCloseable {
      */
     @Override
     public void close() {
-        // Single-view fast path
-        if (singleViewMode) {
-            ViewPools.returnView(singleView);
-            singleView = null;
-            singleViewMode = false;
-            fixedCount = 0;
-            return;
-        }
-        
-        // Return views from fixed array
-        for (int i = 0; i < fixedCount; i++) {
-            ViewPools.returnView(fixedViews[i]);
-            fixedViews[i] = null;  // Help GC
-        }
-        fixedCount = 0;
-        
-        // Return views from overflow list
-        if (overflowViews != null && !overflowViews.isEmpty()) {
-            for (JsonValue view : overflowViews) {
-                ViewPools.returnView(view);
+        try {
+            // Single-view fast path
+            if (singleViewMode) {
+                ViewPools.returnView(singleView);
+                singleView = null;
+                singleViewMode = false;
+                fixedCount = 0;
+                return;
             }
-            overflowViews.clear();
+            
+            // Return views from fixed array
+            for (int i = 0; i < fixedCount; i++) {
+                ViewPools.returnView(fixedViews[i]);
+                fixedViews[i] = null;  // Help GC
+            }
+            fixedCount = 0;
+            
+            // Return views from overflow list
+            if (overflowViews != null && !overflowViews.isEmpty()) {
+                for (JsonValue view : overflowViews) {
+                    ViewPools.returnView(view);
+                }
+                overflowViews.clear();
+            }
+        } finally {
+            // Clear active flag (zero allocation)
+            active = false;
         }
     }
     
