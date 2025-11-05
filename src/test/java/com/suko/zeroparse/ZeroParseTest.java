@@ -14,7 +14,7 @@ public class ZeroParseTest {
         String json = "{\"name\":\"test\",\"value\":42}";
         Buffer buffer = Buffer.buffer(json);
         
-        JsonValue root = ZeroParse.parse(buffer);
+        JsonValue root = new JsonParser().parse(buffer);
         assertNotNull(root);
         assertTrue(root.isObject());
         
@@ -35,7 +35,7 @@ public class ZeroParseTest {
         String json = "[1,2,3]";
         Buffer buffer = Buffer.buffer(json);
         
-        JsonValue root = ZeroParse.parse(buffer);
+        JsonValue root = new JsonParser().parse(buffer);
         assertNotNull(root);
         assertTrue(root.isArray());
         
@@ -52,7 +52,7 @@ public class ZeroParseTest {
         String json = "\"hello world\"";
         Buffer buffer = Buffer.buffer(json);
         
-        JsonValue root = ZeroParse.parse(buffer);
+        JsonValue root = new JsonParser().parse(buffer);
         assertNotNull(root);
         assertTrue(root.isString());
         
@@ -62,12 +62,12 @@ public class ZeroParseTest {
     @Test
     public void testParseBoolean() {
         Buffer trueBuffer = Buffer.buffer("true");
-        JsonValue trueValue = ZeroParse.parse(trueBuffer);
+        JsonValue trueValue = new JsonParser().parse(trueBuffer);
         assertTrue(trueValue.isBoolean());
         assertEquals(JsonBoolean.TRUE, trueValue.asBoolean());
         
         Buffer falseBuffer = Buffer.buffer("false");
-        JsonValue falseValue = ZeroParse.parse(falseBuffer);
+        JsonValue falseValue = new JsonParser().parse(falseBuffer);
         assertTrue(falseValue.isBoolean());
         assertEquals(JsonBoolean.FALSE, falseValue.asBoolean());
     }
@@ -75,7 +75,7 @@ public class ZeroParseTest {
     @Test
     public void testParseNull() {
         Buffer buffer = Buffer.buffer("null");
-        JsonValue root = ZeroParse.parse(buffer);
+        JsonValue root = new JsonParser().parse(buffer);
         assertNotNull(root);
         assertTrue(root.isNull());
         assertEquals(JsonNull.INSTANCE, root);
@@ -84,7 +84,7 @@ public class ZeroParseTest {
     @Test
     public void testParseNumber() {
         Buffer buffer = Buffer.buffer("123.45");
-        JsonValue root = ZeroParse.parse(buffer);
+        JsonValue root = new JsonParser().parse(buffer);
         assertNotNull(root);
         assertTrue(root.isNumber());
         
@@ -95,7 +95,7 @@ public class ZeroParseTest {
     @Test
     public void testParseFromString() {
         String json = "{\"message\":\"Hello, World!\"}";
-        JsonValue root = ZeroParse.parse(json);
+        JsonValue root = new JsonParser().parse(json);
         assertNotNull(root);
         assertTrue(root.isObject());
         
@@ -108,7 +108,7 @@ public class ZeroParseTest {
     public void testParseFromByteArray() {
         String json = "{\"id\":123}";
         byte[] data = json.getBytes();
-        JsonValue root = ZeroParse.parse(data, 0, data.length);
+        JsonValue root = new JsonParser().parse(data, 0, data.length);
         assertNotNull(root);
         assertTrue(root.isObject());
         
@@ -122,7 +122,7 @@ public class ZeroParseTest {
         String json = "[{\"x\":1},{\"y\":2},{\"z\":3}]";
         Buffer buffer = Buffer.buffer(json);
         
-        JsonArrayCursor cursor = ZeroParse.streamArray(buffer);
+        JsonArrayCursor cursor = new JsonParser().streamArray(buffer);
         assertNotNull(cursor);
         assertEquals(3, cursor.size());
         
