@@ -23,6 +23,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     
     // Lazy field index cache
     private int[] fieldIndices;
+    private int fieldIndicesCount;  // Valid count of indices in fieldIndices array
     private boolean fieldIndexBuilt = false;
     
     // Field name slice cache (for repeated access optimization)
@@ -92,6 +93,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         this.context = null;
         this.fieldIndexBuilt = false;
         this.fieldIndices = null;
+        this.fieldIndicesCount = 0;
         this.fieldNamesCached = false;
         this.cachedFieldNames = null;
     }
@@ -108,7 +110,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     
     public int size() {
         buildFieldIndex();
-        return fieldIndices.length;
+        return fieldIndicesCount;
     }
     
     public boolean isEmpty() {
@@ -311,17 +313,36 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
             return;
         }
         
-        java.util.List<Integer> indices = new java.util.ArrayList<>();
-        int childIndex = astStore.getFirstChild(nodeIndex);
-        
-        while (childIndex != -1) {
-            indices.add(childIndex);
-            childIndex = astStore.getNextSibling(childIndex);
-        }
-        
-        fieldIndices = new int[indices.size()];
-        for (int i = 0; i < indices.size(); i++) {
-            fieldIndices[i] = indices.get(i);
+        // Use context buffer if available (zero allocation!), otherwise use ArrayList
+        if (context != null) {
+            int[] buffer = context.getFieldIndexBuffer();
+            int count = 0;
+            int childIndex = astStore.getFirstChild(nodeIndex);
+            
+            while (childIndex != -1 && count < buffer.length) {
+                buffer[count++] = childIndex;
+                childIndex = astStore.getNextSibling(childIndex);
+            }
+            
+            // Use pooled array directly (no copy!)
+            fieldIndices = context.borrowFieldIndicesArray(count);
+            System.arraycopy(buffer, 0, fieldIndices, 0, count);
+            fieldIndicesCount = count;
+        } else {
+            // Fallback for non-pooled mode
+            java.util.List<Integer> indices = new java.util.ArrayList<>();
+            int childIndex = astStore.getFirstChild(nodeIndex);
+            
+            while (childIndex != -1) {
+                indices.add(childIndex);
+                childIndex = astStore.getNextSibling(childIndex);
+            }
+            
+            fieldIndicesCount = indices.size();
+            fieldIndices = new int[fieldIndicesCount];
+            for (int i = 0; i < fieldIndicesCount; i++) {
+                fieldIndices[i] = indices.get(i);
+            }
         }
         
         fieldIndexBuilt = true;
@@ -337,9 +358,10 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         }
         
         buildFieldIndex();
-        cachedFieldNames = new Utf8Slice[fieldIndices.length];
+        // Borrow array from context (reused across parses - zero allocation!)
+        cachedFieldNames = context.borrowFieldNameArray(fieldIndicesCount);
         
-        for (int i = 0; i < fieldIndices.length; i++) {
+        for (int i = 0; i < fieldIndicesCount; i++) {
             int childIndex = fieldIndices[i];
             int nameIndex = astStore.getFirstChild(childIndex);
             int start = astStore.getStart(nameIndex);

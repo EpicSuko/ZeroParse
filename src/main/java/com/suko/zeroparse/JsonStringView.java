@@ -18,6 +18,12 @@ public final class JsonStringView implements JsonValue {
     // Direct slice constructor for substring operations
     private Utf8Slice directSlice;
     
+    // Cached parsed number values (for quoted numbers like {"price": "27000.5"})
+    private long cachedLong;
+    private double cachedDouble;
+    private boolean hasLongCache;
+    private boolean hasDoubleCache;
+    
     /**
      * Create a new JsonStringView backed by AST.
      * 
@@ -30,6 +36,8 @@ public final class JsonStringView implements JsonValue {
         this.nodeIndex = nodeIndex;
         this.cursor = cursor;
         this.directSlice = null;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     /**
@@ -40,6 +48,8 @@ public final class JsonStringView implements JsonValue {
         this.nodeIndex = -1;
         this.cursor = null;
         this.directSlice = slice;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     /**
@@ -50,6 +60,8 @@ public final class JsonStringView implements JsonValue {
         this.nodeIndex = 0;
         this.cursor = null;
         this.directSlice = null;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     /**
@@ -61,6 +73,8 @@ public final class JsonStringView implements JsonValue {
         this.nodeIndex = nodeIndex;
         this.cursor = cursor;
         this.directSlice = null;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     /**
@@ -71,6 +85,8 @@ public final class JsonStringView implements JsonValue {
         this.nodeIndex = 0;
         this.cursor = null;
         this.directSlice = null;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     @Override
@@ -212,6 +228,134 @@ public final class JsonStringView implements JsonValue {
         }
         
         return sb.toString();
+    }
+    
+    // ========== Zero-allocation number parsing methods ==========
+    
+    /**
+     * Parse this string as a double without allocating an intermediate String.
+     * 
+     * <p>This is particularly useful for JSON APIs that quote numbers as strings,
+     * such as: {"price": "27000.5", "volume": "8.760"}</p>
+     * 
+     * <p>This method provides zero-allocation parsing for high-throughput scenarios
+     * like crypto trading WebSocket handlers.</p>
+     * 
+     * <p>Results are cached after first parse for zero-overhead repeated access.</p>
+     * 
+     * @return the parsed double value
+     * @throws NumberFormatException if the string is not a valid number
+     */
+    public double parseDouble() {
+        // Return cached value if available
+        if (hasDoubleCache) {
+            return cachedDouble;
+        }
+        
+        // Parse and cache
+        Utf8Slice slice = slice();
+        cachedDouble = NumberParser.parseDouble(slice.getSource(), slice.getOffset(), slice.getLength());
+        hasDoubleCache = true;
+        return cachedDouble;
+    }
+    
+    /**
+     * Parse this string as a float without allocating an intermediate String.
+     * 
+     * <p>Results are cached after first parse for zero-overhead repeated access.</p>
+     * 
+     * @return the parsed float value
+     * @throws NumberFormatException if the string is not a valid number
+     */
+    public float parseFloat() {
+        // Use cached double if available (avoids re-parsing)
+        if (hasDoubleCache) {
+            return (float) cachedDouble;
+        }
+        
+        // Parse as float and cache as double
+        Utf8Slice slice = slice();
+        float value = NumberParser.parseFloat(slice.getSource(), slice.getOffset(), slice.getLength());
+        cachedDouble = value;
+        hasDoubleCache = true;
+        return value;
+    }
+    
+    /**
+     * Parse this string as a long without allocating an intermediate String.
+     * 
+     * <p>Results are cached after first parse for zero-overhead repeated access.</p>
+     * 
+     * @return the parsed long value
+     * @throws NumberFormatException if the string is not a valid number or out of range
+     */
+    public long parseLong() {
+        // Return cached value if available
+        if (hasLongCache) {
+            return cachedLong;
+        }
+        
+        // Parse and cache
+        Utf8Slice slice = slice();
+        cachedLong = NumberParser.parseLong(slice.getSource(), slice.getOffset(), slice.getLength());
+        hasLongCache = true;
+        return cachedLong;
+    }
+    
+    /**
+     * Parse this string as an int without allocating an intermediate String.
+     * 
+     * <p>Results are cached after first parse for zero-overhead repeated access.</p>
+     * 
+     * @return the parsed int value
+     * @throws NumberFormatException if the string is not a valid number or out of range
+     */
+    public int parseInt() {
+        // Use cached long if available (avoids re-parsing)
+        if (hasLongCache) {
+            if (cachedLong < Integer.MIN_VALUE || cachedLong > Integer.MAX_VALUE) {
+                throw new NumberFormatException("Number out of int range");
+            }
+            return (int) cachedLong;
+        }
+        
+        // Parse as int directly
+        Utf8Slice slice = slice();
+        int value = NumberParser.parseInt(slice.getSource(), slice.getOffset(), slice.getLength());
+        
+        // Cache as long for future use
+        cachedLong = value;
+        hasLongCache = true;
+        
+        return value;
+    }
+    
+    /**
+     * Parse this string as a BigDecimal.
+     * 
+     * <p>Note: This method allocates a String internally as BigDecimal requires it.
+     * Use only when arbitrary precision is required.</p>
+     * 
+     * @return the parsed BigDecimal value
+     * @throws NumberFormatException if the string is not a valid number
+     */
+    public java.math.BigDecimal parseBigDecimal() {
+        Utf8Slice slice = slice();
+        return NumberParser.parseBigDecimal(slice.getSource(), slice.getOffset(), slice.getLength());
+    }
+    
+    /**
+     * Parse this string as a BigInteger.
+     * 
+     * <p>Note: This method allocates a String internally as BigInteger requires it.
+     * Use only when arbitrary precision is required.</p>
+     * 
+     * @return the parsed BigInteger value
+     * @throws NumberFormatException if the string is not a valid number
+     */
+    public java.math.BigInteger parseBigInteger() {
+        Utf8Slice slice = slice();
+        return NumberParser.parseBigInteger(slice.getSource(), slice.getOffset(), slice.getLength());
     }
 }
 

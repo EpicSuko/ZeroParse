@@ -22,6 +22,7 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
     
     // Lazy element index cache
     private int[] elementIndices;
+    private int elementIndicesCount;  // Valid count of indices in elementIndices array
     private boolean elementIndexBuilt = false;
     
     /**
@@ -57,6 +58,7 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
         this.context = null;
         this.elementIndexBuilt = false;
         this.elementIndices = null;
+        this.elementIndicesCount = 0;
     }
     
     /**
@@ -69,6 +71,7 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
         this.context = context;
         this.elementIndexBuilt = false;
         this.elementIndices = null;
+        this.elementIndicesCount = 0;
     }
     
     /**
@@ -81,6 +84,7 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
         this.context = null;
         this.elementIndexBuilt = false;
         this.elementIndices = null;
+        this.elementIndicesCount = 0;
     }
     
     @Override
@@ -95,7 +99,7 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
     
     public int size() {
         buildElementIndex();
-        return elementIndices.length;
+        return elementIndicesCount;
     }
     
     public boolean isEmpty() {
@@ -216,17 +220,36 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
             return;
         }
         
-        java.util.List<Integer> indices = new java.util.ArrayList<>();
-        int childIndex = astStore.getFirstChild(nodeIndex);
-        
-        while (childIndex != -1) {
-            indices.add(childIndex);
-            childIndex = astStore.getNextSibling(childIndex);
-        }
-        
-        elementIndices = new int[indices.size()];
-        for (int i = 0; i < indices.size(); i++) {
-            elementIndices[i] = indices.get(i);
+        // Use context buffer if available (zero allocation!), otherwise use ArrayList
+        if (context != null) {
+            int[] buffer = context.getFieldIndexBuffer();  // Reuse the same buffer as JsonObject
+            int count = 0;
+            int childIndex = astStore.getFirstChild(nodeIndex);
+            
+            while (childIndex != -1 && count < buffer.length) {
+                buffer[count++] = childIndex;
+                childIndex = astStore.getNextSibling(childIndex);
+            }
+            
+            // Use pooled array directly (no copy needed, buffer is reused)
+            elementIndices = context.borrowFieldIndicesArray(count);
+            System.arraycopy(buffer, 0, elementIndices, 0, count);
+            elementIndicesCount = count;
+        } else {
+            // Fallback for non-pooled mode
+            java.util.List<Integer> indices = new java.util.ArrayList<>();
+            int childIndex = astStore.getFirstChild(nodeIndex);
+            
+            while (childIndex != -1) {
+                indices.add(childIndex);
+                childIndex = astStore.getNextSibling(childIndex);
+            }
+            
+            elementIndicesCount = indices.size();
+            elementIndices = new int[elementIndicesCount];
+            for (int i = 0; i < elementIndicesCount; i++) {
+                elementIndices[i] = indices.get(i);
+            }
         }
         
         elementIndexBuilt = true;

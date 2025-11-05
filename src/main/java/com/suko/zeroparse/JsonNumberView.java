@@ -20,6 +20,12 @@ public final class JsonNumberView implements JsonValue {
     // Direct slice constructor
     private Utf8Slice directSlice;
     
+    // Cached parsed values (for repeated access)
+    private long cachedLong;
+    private double cachedDouble;
+    private boolean hasLongCache;
+    private boolean hasDoubleCache;
+    
     /**
      * Create a new JsonNumberView backed by AST.
      * 
@@ -32,6 +38,8 @@ public final class JsonNumberView implements JsonValue {
         this.nodeIndex = nodeIndex;
         this.cursor = cursor;
         this.directSlice = null;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     /**
@@ -42,6 +50,8 @@ public final class JsonNumberView implements JsonValue {
         this.nodeIndex = -1;
         this.cursor = null;
         this.directSlice = slice;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     /**
@@ -52,6 +62,8 @@ public final class JsonNumberView implements JsonValue {
         this.nodeIndex = 0;
         this.cursor = null;
         this.directSlice = null;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     /**
@@ -63,6 +75,8 @@ public final class JsonNumberView implements JsonValue {
         this.nodeIndex = nodeIndex;
         this.cursor = cursor;
         this.directSlice = null;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     /**
@@ -73,6 +87,8 @@ public final class JsonNumberView implements JsonValue {
         this.nodeIndex = 0;
         this.cursor = null;
         this.directSlice = null;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
     }
     
     @Override
@@ -115,35 +131,63 @@ public final class JsonNumberView implements JsonValue {
     }
     
     public long asLong() {
-        String str = slice().toString();
-        try {
-            return Long.parseLong(str);
-        } catch (NumberFormatException e) {
-            // Try parsing as double first, then convert
-            double d = Double.parseDouble(str);
-            if (d < Long.MIN_VALUE || d > Long.MAX_VALUE) {
-                throw new NumberFormatException("Number out of long range: " + str);
-            }
-            return (long) d;
+        // Return cached value if available
+        if (hasLongCache) {
+            return cachedLong;
         }
+        
+        // Parse and cache
+        Utf8Slice slice = slice();
+        cachedLong = NumberParser.parseLong(slice.getSource(), slice.getOffset(), slice.getLength());
+        hasLongCache = true;
+        return cachedLong;
     }
     
     public int asInt() {
-        long value = asLong();
-        if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
-            throw new NumberFormatException("Number out of int range: " + slice().toString());
+        // Use cached long if available (avoids re-parsing)
+        if (hasLongCache) {
+            if (cachedLong < Integer.MIN_VALUE || cachedLong > Integer.MAX_VALUE) {
+                throw new NumberFormatException("Number out of int range");
+            }
+            return (int) cachedLong;
         }
-        return (int) value;
+        
+        // Parse as int directly
+        Utf8Slice slice = slice();
+        int value = NumberParser.parseInt(slice.getSource(), slice.getOffset(), slice.getLength());
+        
+        // Cache as long for future use
+        cachedLong = value;
+        hasLongCache = true;
+        
+        return value;
     }
     
     public double asDouble() {
-        String str = slice().toString();
-        return Double.parseDouble(str);
+        // Return cached value if available
+        if (hasDoubleCache) {
+            return cachedDouble;
+        }
+        
+        // Parse and cache
+        Utf8Slice slice = slice();
+        cachedDouble = NumberParser.parseDouble(slice.getSource(), slice.getOffset(), slice.getLength());
+        hasDoubleCache = true;
+        return cachedDouble;
     }
     
     public float asFloat() {
-        String str = slice().toString();
-        return Float.parseFloat(str);
+        // Use cached double if available (avoids re-parsing)
+        if (hasDoubleCache) {
+            return (float) cachedDouble;
+        }
+        
+        // Parse as float and cache as double
+        Utf8Slice slice = slice();
+        float value = NumberParser.parseFloat(slice.getSource(), slice.getOffset(), slice.getLength());
+        cachedDouble = value;
+        hasDoubleCache = true;
+        return value;
     }
     
     public BigDecimal asBigDecimal() {

@@ -63,6 +63,19 @@ public final class JsonParseContext implements AutoCloseable {
     // Overflow list for large cases (lazy allocated)
     private List<Utf8Slice> overflowSlices;
     
+    // Fixed array pool for field name caches (reused across JsonObjects)
+    private final Utf8Slice[][] fieldNameArrayPool;
+    private int fieldNameArrayPoolIndex;
+    private static final int MAX_FIELD_NAME_ARRAYS = 8;
+    
+    // Fixed array pool for field indices (reused across JsonObjects)
+    private final int[][] fieldIndicesArrayPool;
+    private int fieldIndicesArrayPoolIndex;
+    private static final int MAX_FIELD_INDICES_ARRAYS = 8;
+    
+    // Reusable integer array for building field indices (avoids ArrayList allocation)
+    private final int[] fieldIndexBuffer;
+    
     // Single-view fast path flag
     private boolean singleViewMode;
     private JsonValue singleView;
@@ -117,6 +130,20 @@ public final class JsonParseContext implements AutoCloseable {
         this.fixedSlices = new Utf8Slice[FIXED_SLICE_CAPACITY];
         this.fixedSliceCount = 0;
         this.overflowSlices = null;
+        this.fieldNameArrayPool = new Utf8Slice[MAX_FIELD_NAME_ARRAYS][];
+        this.fieldNameArrayPoolIndex = 0;
+        this.fieldIndicesArrayPool = new int[MAX_FIELD_INDICES_ARRAYS][];
+        this.fieldIndicesArrayPoolIndex = 0;
+        this.fieldIndexBuffer = new int[64];  // Reusable buffer for field indices (most objects have < 64 fields)
+        
+        // Pre-allocate all arrays in the pools to avoid allocation during parsing
+        // These arrays are reused across parses via the pool indices
+        for (int i = 0; i < MAX_FIELD_NAME_ARRAYS; i++) {
+            fieldNameArrayPool[i] = new Utf8Slice[16];  // Support up to 16 fields per object
+        }
+        for (int i = 0; i < MAX_FIELD_INDICES_ARRAYS; i++) {
+            fieldIndicesArrayPool[i] = new int[16];  // Support up to 16 fields per object
+        }
     }
     
     /**
@@ -128,8 +155,12 @@ public final class JsonParseContext implements AutoCloseable {
         this.singleView = null;
         this.active = false;  // Will be set to true by get()
         this.fixedSliceCount = 0;
+        this.fieldNameArrayPoolIndex = 0;  // Reset array pool index
+        this.fieldIndicesArrayPoolIndex = 0;  // Reset field indices pool index
         // Note: Don't clear fixedViews array - we'll overwrite slots
         // Note: Don't null overflowViews - keep capacity for reuse
+        // Note: Don't clear fieldNameArrayPool - arrays are reused
+        // Note: Don't clear fieldIndicesArrayPool - arrays are reused
         if (overflowViews != null) {
             overflowViews.clear();
         }
@@ -300,6 +331,60 @@ public final class JsonParseContext implements AutoCloseable {
         Utf8Slice slice = ViewPools.borrowSlice(source, offset, length);
         trackSlice(slice);
         return slice;
+    }
+    
+    /**
+     * Borrow or allocate a Utf8Slice array for field name caching.
+     * Arrays are reused across multiple JsonObjects within the same context.
+     * 
+     * @param size the required array size
+     * @return a Utf8Slice array (reused or newly allocated)
+     */
+    Utf8Slice[] borrowFieldNameArray(int size) {
+        // Try to reuse from pre-allocated pool
+        if (fieldNameArrayPoolIndex < MAX_FIELD_NAME_ARRAYS) {
+            Utf8Slice[] array = fieldNameArrayPool[fieldNameArrayPoolIndex];
+            if (array.length >= size) {
+                fieldNameArrayPoolIndex++;
+                return array;
+            }
+        }
+        
+        // Pool exhausted - should not happen in normal cases
+        // Return a fallback array (this would trigger allocation)
+        return new Utf8Slice[size];
+    }
+    
+    /**
+     * Borrow a field indices array from the context.
+     * Arrays are reused across multiple JsonObjects within the same context.
+     * 
+     * @param count the number of indices needed
+     * @return an int array for field indices (reused or newly allocated)
+     */
+    int[] borrowFieldIndicesArray(int count) {
+        // Try to reuse from pre-allocated pool
+        if (fieldIndicesArrayPoolIndex < MAX_FIELD_INDICES_ARRAYS) {
+            int[] array = fieldIndicesArrayPool[fieldIndicesArrayPoolIndex];
+            if (array.length >= count) {
+                fieldIndicesArrayPoolIndex++;
+                return array;
+            }
+        }
+        
+        // Pool exhausted - should not happen in normal cases
+        // Return a fallback array (this would trigger allocation)
+        return new int[count];
+    }
+    
+    /**
+     * Get the reusable field index buffer for building field indices.
+     * This avoids ArrayList allocation in JsonObject.buildFieldIndex().
+     * 
+     * @return the field index buffer
+     */
+    int[] getFieldIndexBuffer() {
+        return fieldIndexBuffer;
     }
     
     /**
