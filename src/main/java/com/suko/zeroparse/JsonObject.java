@@ -210,14 +210,82 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         return value != null && value.isBoolean() ? value.asBoolean() : null;
     }
     
+    /**
+     * Get a nested object field by name.
+     * Optimized to avoid creating view if type doesn't match.
+     */
     public JsonObject getObject(String name) {
-        JsonValue value = get(name);
-        return value != null && value.isObject() ? value.asObject() : null;
+        if (name == null) {
+            return null;
+        }
+        
+        // Use built-in String.hashCode() - matches our precomputed hash!
+        int queryHash = name.hashCode();
+        
+        int childIndex = astStore.getFirstChild(nodeIndex);
+        while (childIndex != -1) {
+            // Each field has two children: name and value
+            int nameIndex = astStore.getFirstChild(childIndex);
+            int valueIndex = astStore.getNextSibling(nameIndex);
+            
+            if (nameIndex != -1 && astStore.getType(nameIndex) == AstStore.TYPE_STRING) {
+                // FAST PATH: hashcode comparison first
+                if (astStore.getHashCode(nameIndex) == queryHash) {
+                    // Hash match - verify with character comparison
+                    if (matchesString(nameIndex, name)) {
+                        // Type check BEFORE creating view (avoids wasted allocation)
+                        if (valueIndex != -1 && astStore.getType(valueIndex) == AstStore.TYPE_OBJECT) {
+                            JsonValue view = createValueView(valueIndex);
+                            return (JsonObject) view;
+                        }
+                        return null;
+                    }
+                }
+            }
+            
+            childIndex = astStore.getNextSibling(childIndex);
+        }
+        
+        return null;
     }
     
+    /**
+     * Get a nested array field by name.
+     * Optimized to avoid creating view if type doesn't match.
+     */
     public JsonArray getArray(String name) {
-        JsonValue value = get(name);
-        return value != null && value.isArray() ? value.asArray() : null;
+        if (name == null) {
+            return null;
+        }
+        
+        // Use built-in String.hashCode() - matches our precomputed hash!
+        int queryHash = name.hashCode();
+        
+        int childIndex = astStore.getFirstChild(nodeIndex);
+        while (childIndex != -1) {
+            // Each field has two children: name and value
+            int nameIndex = astStore.getFirstChild(childIndex);
+            int valueIndex = astStore.getNextSibling(nameIndex);
+            
+            if (nameIndex != -1 && astStore.getType(nameIndex) == AstStore.TYPE_STRING) {
+                // FAST PATH: hashcode comparison first
+                if (astStore.getHashCode(nameIndex) == queryHash) {
+                    // Hash match - verify with character comparison
+                    if (matchesString(nameIndex, name)) {
+                        // Type check BEFORE creating view (avoids wasted allocation)
+                        if (valueIndex != -1 && astStore.getType(valueIndex) == AstStore.TYPE_ARRAY) {
+                            JsonValue view = createValueView(valueIndex);
+                            return (JsonArray) view;
+                        }
+                        return null;
+                    }
+                }
+            }
+            
+            childIndex = astStore.getNextSibling(childIndex);
+        }
+        
+        return null;
     }
     
     public boolean has(String name) {
@@ -488,16 +556,9 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     private JsonValue createValueView(int valueIndex) {
         byte type = astStore.getType(valueIndex);
         
-        // If we have a context, use pooled views
+        // If we have a context, use pooled views (context is set inside borrowView for Object/Array)
         if (context != null) {
-            JsonValue view = context.borrowView(type, astStore, valueIndex, cursor);
-            // Pass context to nested objects/arrays for recursive pooling
-            if (view instanceof JsonObject) {
-                ((JsonObject) view).context = context;
-            } else if (view instanceof JsonArray) {
-                ((JsonArray) view).context = context;
-            }
-            return view;
+            return context.borrowView(type, astStore, valueIndex, cursor);
         }
         
         // Fallback to direct allocation (backward compatibility)

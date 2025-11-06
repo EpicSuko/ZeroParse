@@ -251,6 +251,7 @@ public final class JsonParseContext implements AutoCloseable {
     /**
      * Borrow a view object from the pool and track it for automatic return.
      * This is used internally during parsing to create nested view objects.
+     * Sets context directly on Object/Array views for recursive pooling.
      */
     JsonValue borrowView(byte type, com.suko.zeroparse.stack.AstStore ast, 
                          int idx, InputCursor cursor) {
@@ -260,12 +261,14 @@ public final class JsonParseContext implements AutoCloseable {
             case com.suko.zeroparse.stack.AstStore.TYPE_OBJECT:
                 JsonObject obj = ViewPools.borrowObject();
                 obj.reset(ast, idx, cursor);
+                obj.context = this;  // Set context directly (avoids instanceof check in caller)
                 view = obj;
                 break;
                 
             case com.suko.zeroparse.stack.AstStore.TYPE_ARRAY:
                 JsonArray arr = ViewPools.borrowArray();
                 arr.reset(ast, idx, cursor);
+                arr.context = this;  // Set context directly (avoids instanceof check in caller)
                 view = arr;
                 break;
                 
@@ -441,65 +444,72 @@ public final class JsonParseContext implements AutoCloseable {
     /**
      * Return all borrowed views and slices back to the pool.
      * Called automatically by try-with-resources.
+     * Optimized with early exits for empty arrays.
      */
     @Override
     public void close() {
         try {
             // Return all tracked views directly to their pools (no instanceof checks!)
+            // Early exit optimization: skip loops if count is 0
+            
             // Objects
-            for (int i = 0; i < objectCount; i++) {
-                ViewPools.OBJECT_POOL.release(fixedObjects[i]);
-                fixedObjects[i] = null;  // Help GC
-            }
-            if (overflowObjects != null && !overflowObjects.isEmpty()) {
-                for (JsonObject obj : overflowObjects) {
-                    ViewPools.OBJECT_POOL.release(obj);
+            if (objectCount > 0) {
+                for (int i = 0; i < objectCount; i++) {
+                    ViewPools.OBJECT_POOL.release(fixedObjects[i]);
                 }
-                overflowObjects.clear();
+                if (overflowObjects != null && !overflowObjects.isEmpty()) {
+                    for (JsonObject obj : overflowObjects) {
+                        ViewPools.OBJECT_POOL.release(obj);
+                    }
+                    overflowObjects.clear();
+                }
             }
             
             // Arrays
-            for (int i = 0; i < arrayCount; i++) {
-                ViewPools.ARRAY_POOL.release(fixedArrays[i]);
-                fixedArrays[i] = null;
-            }
-            if (overflowArrays != null && !overflowArrays.isEmpty()) {
-                for (JsonArray arr : overflowArrays) {
-                    ViewPools.ARRAY_POOL.release(arr);
+            if (arrayCount > 0) {
+                for (int i = 0; i < arrayCount; i++) {
+                    ViewPools.ARRAY_POOL.release(fixedArrays[i]);
                 }
-                overflowArrays.clear();
+                if (overflowArrays != null && !overflowArrays.isEmpty()) {
+                    for (JsonArray arr : overflowArrays) {
+                        ViewPools.ARRAY_POOL.release(arr);
+                    }
+                    overflowArrays.clear();
+                }
             }
             
             // Strings
-            for (int i = 0; i < stringCount; i++) {
-                ViewPools.STRING_POOL.release(fixedStrings[i]);
-                fixedStrings[i] = null;
-            }
-            if (overflowStrings != null && !overflowStrings.isEmpty()) {
-                for (JsonStringView str : overflowStrings) {
-                    ViewPools.STRING_POOL.release(str);
+            if (stringCount > 0) {
+                for (int i = 0; i < stringCount; i++) {
+                    ViewPools.STRING_POOL.release(fixedStrings[i]);
                 }
-                overflowStrings.clear();
+                if (overflowStrings != null && !overflowStrings.isEmpty()) {
+                    for (JsonStringView str : overflowStrings) {
+                        ViewPools.STRING_POOL.release(str);
+                    }
+                    overflowStrings.clear();
+                }
             }
             
             // Numbers
-            for (int i = 0; i < numberCount; i++) {
-                ViewPools.NUMBER_POOL.release(fixedNumbers[i]);
-                fixedNumbers[i] = null;
-            }
-            if (overflowNumbers != null && !overflowNumbers.isEmpty()) {
-                for (JsonNumberView num : overflowNumbers) {
-                    ViewPools.NUMBER_POOL.release(num);
+            if (numberCount > 0) {
+                for (int i = 0; i < numberCount; i++) {
+                    ViewPools.NUMBER_POOL.release(fixedNumbers[i]);
                 }
-                overflowNumbers.clear();
+                if (overflowNumbers != null && !overflowNumbers.isEmpty()) {
+                    for (JsonNumberView num : overflowNumbers) {
+                        ViewPools.NUMBER_POOL.release(num);
+                    }
+                    overflowNumbers.clear();
+                }
             }
             
             // Return slices from fixed array
-            for (int i = 0; i < fixedSliceCount; i++) {
-                ViewPools.returnSlice(fixedSlices[i]);
-                fixedSlices[i] = null;  // Help GC
+            if (fixedSliceCount > 0) {
+                for (int i = 0; i < fixedSliceCount; i++) {
+                    ViewPools.returnSlice(fixedSlices[i]);
+                }
             }
-            fixedSliceCount = 0;
             
             // Return slices from overflow list
             if (overflowSlices != null && !overflowSlices.isEmpty()) {

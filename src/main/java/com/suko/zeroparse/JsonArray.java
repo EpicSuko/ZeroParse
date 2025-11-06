@@ -258,16 +258,9 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
     private JsonValue createValueView(int valueIndex) {
         byte type = astStore.getType(valueIndex);
         
-        // If we have a context, use pooled views
+        // If we have a context, use pooled views (context is set inside borrowView for Object/Array)
         if (context != null) {
-            JsonValue view = context.borrowView(type, astStore, valueIndex, cursor);
-            // Pass context to nested objects/arrays for recursive pooling
-            if (view instanceof JsonObject) {
-                ((JsonObject) view).context = context;
-            } else if (view instanceof JsonArray) {
-                ((JsonArray) view).context = context;
-            }
-            return view;
+            return context.borrowView(type, astStore, valueIndex, cursor);
         }
         
         // Fallback to direct allocation (backward compatibility)
