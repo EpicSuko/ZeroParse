@@ -43,27 +43,20 @@ public final class JsonParseContext implements AutoCloseable {
     private static final ThreadLocal<JsonParseContext> CONTEXT_POOL = 
         ThreadLocal.withInitial(JsonParseContext::new);
     
-    // Fixed-size array for small cases (most JSON has < 16 views per type)
-    private static final int FIXED_CAPACITY = 16;
+    // Fixed-size array for small cases (most JSON has < 64 views total)
+    private static final int FIXED_CAPACITY = 64;
     private static final int FIXED_SLICE_CAPACITY = 32;  // Slices are more common
     
     private final JsonParser parser;
     
-    // Type-specific fixed arrays (avoids instanceof checks on return)
-    private final JsonObject[] fixedObjects;
-    private final JsonArray[] fixedArrays;
-    private final JsonStringView[] fixedStrings;
-    private final JsonNumberView[] fixedNumbers;
-    private int objectCount;
-    private int arrayCount;
-    private int stringCount;
-    private int numberCount;
+    // Unified tracking with type tags (simpler, faster close())
+    private final JsonValue[] fixedViews;
+    private final byte[] fixedViewTypes;  // TYPE_OBJECT, TYPE_ARRAY, TYPE_STRING, TYPE_NUMBER
+    private int viewCount;
     
-    // Type-specific overflow lists (lazy allocated)
-    private List<JsonObject> overflowObjects;
-    private List<JsonArray> overflowArrays;
-    private List<JsonStringView> overflowStrings;
-    private List<JsonNumberView> overflowNumbers;
+    // Overflow list for large JSON (lazy allocated)
+    private List<JsonValue> overflowViews;
+    private List<Byte> overflowViewTypes;
     
     // Fixed array for slices (most JSON has < 32 slices)
     private final Utf8Slice[] fixedSlices;
@@ -127,20 +120,13 @@ public final class JsonParseContext implements AutoCloseable {
      */
     public JsonParseContext(JsonParser parser) {
         this.parser = parser;
-        this.fixedObjects = new JsonObject[FIXED_CAPACITY];
-        this.fixedArrays = new JsonArray[FIXED_CAPACITY];
-        this.fixedStrings = new JsonStringView[FIXED_CAPACITY];
-        this.fixedNumbers = new JsonNumberView[FIXED_CAPACITY];
-        this.objectCount = 0;
-        this.arrayCount = 0;
-        this.stringCount = 0;
-        this.numberCount = 0;
+        this.fixedViews = new JsonValue[FIXED_CAPACITY];
+        this.fixedViewTypes = new byte[FIXED_CAPACITY];
+        this.viewCount = 0;
         this.fixedSlices = new Utf8Slice[FIXED_SLICE_CAPACITY];
         this.fixedSliceCount = 0;
-        this.overflowObjects = null;
-        this.overflowArrays = null;
-        this.overflowStrings = null;
-        this.overflowNumbers = null;
+        this.overflowViews = null;
+        this.overflowViewTypes = null;
         this.overflowSlices = null;
         this.fieldNameArrayPool = new Utf8Slice[MAX_FIELD_NAME_ARRAYS][];
         this.fieldNameArrayPoolIndex = 0;
@@ -162,27 +148,18 @@ public final class JsonParseContext implements AutoCloseable {
      * Reset this context for reuse (called by ThreadLocal pool).
      */
     private void reset() {
-        this.objectCount = 0;
-        this.arrayCount = 0;
-        this.stringCount = 0;
-        this.numberCount = 0;
+        this.viewCount = 0;
         this.active = false;  // Will be set to true by get()
         this.fixedSliceCount = 0;
         this.fieldNameArrayPoolIndex = 0;  // Reset array pool index
         this.fieldIndicesArrayPoolIndex = 0;  // Reset field indices pool index
         // Note: Don't clear fixed arrays - we'll overwrite slots
         // Note: Keep overflow list capacity for reuse
-        if (overflowObjects != null) {
-            overflowObjects.clear();
+        if (overflowViews != null) {
+            overflowViews.clear();
         }
-        if (overflowArrays != null) {
-            overflowArrays.clear();
-        }
-        if (overflowStrings != null) {
-            overflowStrings.clear();
-        }
-        if (overflowNumbers != null) {
-            overflowNumbers.clear();
+        if (overflowViewTypes != null) {
+            overflowViewTypes.clear();
         }
         if (overflowSlices != null) {
             overflowSlices.clear();
@@ -313,50 +290,38 @@ public final class JsonParseContext implements AutoCloseable {
     }
     
     /**
-     * Add a view to tracking (optimized with type-specific arrays to avoid instanceof on return).
+     * Add a view to tracking (simplified with unified array + type tags).
+     * Type is determined once here, then used for fast dispatch in close().
      */
     private void addView(JsonValue view) {
-        // Route to type-specific array (eliminates instanceof checks later)
+        // Determine type once (using instanceof, but only once per view)
+        byte type;
         if (view instanceof JsonObject) {
-            JsonObject obj = (JsonObject) view;
-            if (objectCount < FIXED_CAPACITY) {
-                fixedObjects[objectCount++] = obj;
-            } else {
-                if (overflowObjects == null) {
-                    overflowObjects = new ArrayList<>(16);
-                }
-                overflowObjects.add(obj);
-            }
+            type = com.suko.zeroparse.stack.AstStore.TYPE_OBJECT;
         } else if (view instanceof JsonArray) {
-            JsonArray arr = (JsonArray) view;
-            if (arrayCount < FIXED_CAPACITY) {
-                fixedArrays[arrayCount++] = arr;
-            } else {
-                if (overflowArrays == null) {
-                    overflowArrays = new ArrayList<>(16);
-                }
-                overflowArrays.add(arr);
-            }
+            type = com.suko.zeroparse.stack.AstStore.TYPE_ARRAY;
         } else if (view instanceof JsonStringView) {
-            JsonStringView str = (JsonStringView) view;
-            if (stringCount < FIXED_CAPACITY) {
-                fixedStrings[stringCount++] = str;
-            } else {
-                if (overflowStrings == null) {
-                    overflowStrings = new ArrayList<>(32);
-                }
-                overflowStrings.add(str);
-            }
+            type = com.suko.zeroparse.stack.AstStore.TYPE_STRING;
         } else if (view instanceof JsonNumberView) {
-            JsonNumberView num = (JsonNumberView) view;
-            if (numberCount < FIXED_CAPACITY) {
-                fixedNumbers[numberCount++] = num;
-            } else {
-                if (overflowNumbers == null) {
-                    overflowNumbers = new ArrayList<>(32);
-                }
-                overflowNumbers.add(num);
+            type = com.suko.zeroparse.stack.AstStore.TYPE_NUMBER;
+        } else {
+            // Singletons (JsonBoolean, JsonNull) don't need tracking
+            return;
+        }
+        
+        // Store in unified array with type tag
+        if (viewCount < FIXED_CAPACITY) {
+            fixedViews[viewCount] = view;
+            fixedViewTypes[viewCount] = type;
+            viewCount++;
+        } else {
+            // Overflow to lists (rare for most JSON)
+            if (overflowViews == null) {
+                overflowViews = new ArrayList<>(32);
+                overflowViewTypes = new ArrayList<>(32);
             }
+            overflowViews.add(view);
+            overflowViewTypes.add(type);
         }
     }
     
@@ -444,64 +409,55 @@ public final class JsonParseContext implements AutoCloseable {
     /**
      * Return all borrowed views and slices back to the pool.
      * Called automatically by try-with-resources.
-     * Optimized with early exits for empty arrays.
+     * Optimized with unified tracking and switch dispatch.
      */
     @Override
     public void close() {
         try {
-            // Return all tracked views directly to their pools (no instanceof checks!)
-            // Early exit optimization: skip loops if count is 0
-            
-            // Objects
-            if (objectCount > 0) {
-                for (int i = 0; i < objectCount; i++) {
-                    ViewPools.OBJECT_POOL.release(fixedObjects[i]);
-                }
-                if (overflowObjects != null && !overflowObjects.isEmpty()) {
-                    for (JsonObject obj : overflowObjects) {
-                        ViewPools.OBJECT_POOL.release(obj);
-                    }
-                    overflowObjects.clear();
-                }
-            }
-            
-            // Arrays
-            if (arrayCount > 0) {
-                for (int i = 0; i < arrayCount; i++) {
-                    ViewPools.ARRAY_POOL.release(fixedArrays[i]);
-                }
-                if (overflowArrays != null && !overflowArrays.isEmpty()) {
-                    for (JsonArray arr : overflowArrays) {
-                        ViewPools.ARRAY_POOL.release(arr);
-                    }
-                    overflowArrays.clear();
+            // Return all tracked views using type tags for fast dispatch (single loop!)
+            for (int i = 0; i < viewCount; i++) {
+                JsonValue view = fixedViews[i];
+                byte type = fixedViewTypes[i];
+                
+                switch (type) {
+                    case com.suko.zeroparse.stack.AstStore.TYPE_OBJECT:
+                        ViewPools.OBJECT_POOL.release((JsonObject) view);
+                        break;
+                    case com.suko.zeroparse.stack.AstStore.TYPE_ARRAY:
+                        ViewPools.ARRAY_POOL.release((JsonArray) view);
+                        break;
+                    case com.suko.zeroparse.stack.AstStore.TYPE_STRING:
+                        ViewPools.STRING_POOL.release((JsonStringView) view);
+                        break;
+                    case com.suko.zeroparse.stack.AstStore.TYPE_NUMBER:
+                        ViewPools.NUMBER_POOL.release((JsonNumberView) view);
+                        break;
                 }
             }
             
-            // Strings
-            if (stringCount > 0) {
-                for (int i = 0; i < stringCount; i++) {
-                    ViewPools.STRING_POOL.release(fixedStrings[i]);
-                }
-                if (overflowStrings != null && !overflowStrings.isEmpty()) {
-                    for (JsonStringView str : overflowStrings) {
-                        ViewPools.STRING_POOL.release(str);
+            // Return overflow views (rare)
+            if (overflowViews != null && !overflowViews.isEmpty()) {
+                for (int i = 0; i < overflowViews.size(); i++) {
+                    JsonValue view = overflowViews.get(i);
+                    byte type = overflowViewTypes.get(i);
+                    
+                    switch (type) {
+                        case com.suko.zeroparse.stack.AstStore.TYPE_OBJECT:
+                            ViewPools.OBJECT_POOL.release((JsonObject) view);
+                            break;
+                        case com.suko.zeroparse.stack.AstStore.TYPE_ARRAY:
+                            ViewPools.ARRAY_POOL.release((JsonArray) view);
+                            break;
+                        case com.suko.zeroparse.stack.AstStore.TYPE_STRING:
+                            ViewPools.STRING_POOL.release((JsonStringView) view);
+                            break;
+                        case com.suko.zeroparse.stack.AstStore.TYPE_NUMBER:
+                            ViewPools.NUMBER_POOL.release((JsonNumberView) view);
+                            break;
                     }
-                    overflowStrings.clear();
                 }
-            }
-            
-            // Numbers
-            if (numberCount > 0) {
-                for (int i = 0; i < numberCount; i++) {
-                    ViewPools.NUMBER_POOL.release(fixedNumbers[i]);
-                }
-                if (overflowNumbers != null && !overflowNumbers.isEmpty()) {
-                    for (JsonNumberView num : overflowNumbers) {
-                        ViewPools.NUMBER_POOL.release(num);
-                    }
-                    overflowNumbers.clear();
-                }
+                overflowViews.clear();
+                overflowViewTypes.clear();
             }
             
             // Return slices from fixed array
@@ -531,18 +487,9 @@ public final class JsonParseContext implements AutoCloseable {
      * @return the number of tracked views
      */
     public int getTrackedViewCount() {
-        int count = objectCount + arrayCount + stringCount + numberCount;
-        if (overflowObjects != null) {
-            count += overflowObjects.size();
-        }
-        if (overflowArrays != null) {
-            count += overflowArrays.size();
-        }
-        if (overflowStrings != null) {
-            count += overflowStrings.size();
-        }
-        if (overflowNumbers != null) {
-            count += overflowNumbers.size();
+        int count = viewCount;
+        if (overflowViews != null) {
+            count += overflowViews.size();
         }
         return count;
     }
