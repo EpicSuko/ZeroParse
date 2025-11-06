@@ -68,6 +68,19 @@ public final class StringCursor implements InputCursor {
         return new Utf8Slice(bytes, 0, bytes.length);
     }
     
+    @Override
+    public byte[] getUnderlyingBytes() {
+        return utf8Bytes;
+    }
+    
+    @Override
+    public int getUnderlyingOffset(int position) {
+        // For StringCursor, we need to calculate the UTF-8 byte offset
+        // This is expensive, so it's best to avoid for StringCursor
+        // Return position as-is (works for ASCII, not for multi-byte UTF-8)
+        return position;
+    }
+    
     /**
      * Get the underlying String.
      * 

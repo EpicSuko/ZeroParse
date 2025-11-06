@@ -389,16 +389,43 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     private boolean matchesString(int nameIndex, String queryString) {
         int start = astStore.getStart(nameIndex);
         int end = astStore.getEnd(nameIndex);
+        int byteLength = end - start;
+        int queryLength = queryString.length();
         
+        // Fast reject: length mismatch (most field names are ASCII, so byte length == char length)
+        if (queryLength > byteLength) {
+            return false;
+        }
+        
+        // FAST PATH: Pure ASCII comparison (99% of cases)
+        // If lengths match and all bytes are ASCII, we can do direct byte-to-char comparison
+        if (queryLength == byteLength) {
+            for (int i = 0; i < queryLength; i++) {
+                byte b = cursor.byteAt(start + i);
+                if ((b & 0x80) != 0) {
+                    // Non-ASCII detected, fall through to UTF-8 path
+                    break;
+                }
+                if ((char) b != queryString.charAt(i)) {
+                    return false;
+                }
+                if (i == queryLength - 1) {
+                    // All matched!
+                    return true;
+                }
+            }
+        }
+        
+        // SLOW PATH: UTF-8 decoding (rare)
         int bytePos = start;
         int charPos = 0;
         
-        while (bytePos < end && charPos < queryString.length()) {
+        while (bytePos < end && charPos < queryLength) {
             byte b = cursor.byteAt(bytePos);
             char expectedChar = queryString.charAt(charPos);
             
             if ((b & 0x80) == 0) {
-                // ASCII (1 byte) - fast path
+                // ASCII (1 byte)
                 if ((char) b != expectedChar) {
                     return false;
                 }
@@ -442,11 +469,11 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
                 int high = ((codePoint >> 10) + 0xD7C0);
                 int low = ((codePoint & 0x3FF) + 0xDC00);
                 
-                if (charPos >= queryString.length() || (char) high != queryString.charAt(charPos)) {
+                if (charPos >= queryLength || (char) high != queryString.charAt(charPos)) {
                     return false;
                 }
                 charPos++;
-                if (charPos >= queryString.length() || (char) low != queryString.charAt(charPos)) {
+                if (charPos >= queryLength || (char) low != queryString.charAt(charPos)) {
                     return false;
                 }
                 charPos++;
@@ -455,7 +482,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         }
         
         // Both must be exhausted for a match
-        return bytePos == end && charPos == queryString.length();
+        return bytePos == end && charPos == queryLength;
     }
     
     private JsonValue createValueView(int valueIndex) {

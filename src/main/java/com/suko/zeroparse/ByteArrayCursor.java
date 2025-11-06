@@ -104,6 +104,16 @@ public final class ByteArrayCursor implements InputCursor {
         return new Utf8Slice(data, offset + start, sliceLength);
     }
     
+    @Override
+    public byte[] getUnderlyingBytes() {
+        return data;
+    }
+    
+    @Override
+    public int getUnderlyingOffset(int position) {
+        return offset + position;
+    }
+    
     /**
      * Get the underlying byte array.
      * 

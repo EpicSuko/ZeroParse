@@ -121,6 +121,16 @@ public final class BufferCursor implements InputCursor {
         return new Utf8Slice(cachedBytes, offset + start, length);
     }
     
+    @Override
+    public byte[] getUnderlyingBytes() {
+        return cachedBytes;
+    }
+    
+    @Override
+    public int getUnderlyingOffset(int position) {
+        return offset + position;
+    }
+    
     /**
      * Get the underlying Buffer.
      * 

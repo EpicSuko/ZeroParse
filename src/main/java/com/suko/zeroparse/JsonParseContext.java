@@ -43,18 +43,27 @@ public final class JsonParseContext implements AutoCloseable {
     private static final ThreadLocal<JsonParseContext> CONTEXT_POOL = 
         ThreadLocal.withInitial(JsonParseContext::new);
     
-    // Fixed-size array for small cases (most JSON has < 16 views)
+    // Fixed-size array for small cases (most JSON has < 16 views per type)
     private static final int FIXED_CAPACITY = 16;
     private static final int FIXED_SLICE_CAPACITY = 32;  // Slices are more common
     
     private final JsonParser parser;
     
-    // Fixed array for fast path (no ArrayList allocation)
-    private final JsonValue[] fixedViews;
-    private int fixedCount;
+    // Type-specific fixed arrays (avoids instanceof checks on return)
+    private final JsonObject[] fixedObjects;
+    private final JsonArray[] fixedArrays;
+    private final JsonStringView[] fixedStrings;
+    private final JsonNumberView[] fixedNumbers;
+    private int objectCount;
+    private int arrayCount;
+    private int stringCount;
+    private int numberCount;
     
-    // Overflow list for large cases (lazy allocated)
-    private List<JsonValue> overflowViews;
+    // Type-specific overflow lists (lazy allocated)
+    private List<JsonObject> overflowObjects;
+    private List<JsonArray> overflowArrays;
+    private List<JsonStringView> overflowStrings;
+    private List<JsonNumberView> overflowNumbers;
     
     // Fixed array for slices (most JSON has < 32 slices)
     private final Utf8Slice[] fixedSlices;
@@ -75,10 +84,6 @@ public final class JsonParseContext implements AutoCloseable {
     
     // Reusable integer array for building field indices (avoids ArrayList allocation)
     private final int[] fieldIndexBuffer;
-    
-    // Single-view fast path flag
-    private boolean singleViewMode;
-    private JsonValue singleView;
     
     // Active flag (cheaper than ThreadLocal lookup)
     private boolean active;
@@ -122,13 +127,20 @@ public final class JsonParseContext implements AutoCloseable {
      */
     public JsonParseContext(JsonParser parser) {
         this.parser = parser;
-        this.fixedViews = new JsonValue[FIXED_CAPACITY];
-        this.fixedCount = 0;
-        this.overflowViews = null;
-        this.singleViewMode = false;
-        this.singleView = null;
+        this.fixedObjects = new JsonObject[FIXED_CAPACITY];
+        this.fixedArrays = new JsonArray[FIXED_CAPACITY];
+        this.fixedStrings = new JsonStringView[FIXED_CAPACITY];
+        this.fixedNumbers = new JsonNumberView[FIXED_CAPACITY];
+        this.objectCount = 0;
+        this.arrayCount = 0;
+        this.stringCount = 0;
+        this.numberCount = 0;
         this.fixedSlices = new Utf8Slice[FIXED_SLICE_CAPACITY];
         this.fixedSliceCount = 0;
+        this.overflowObjects = null;
+        this.overflowArrays = null;
+        this.overflowStrings = null;
+        this.overflowNumbers = null;
         this.overflowSlices = null;
         this.fieldNameArrayPool = new Utf8Slice[MAX_FIELD_NAME_ARRAYS][];
         this.fieldNameArrayPoolIndex = 0;
@@ -150,19 +162,27 @@ public final class JsonParseContext implements AutoCloseable {
      * Reset this context for reuse (called by ThreadLocal pool).
      */
     private void reset() {
-        this.fixedCount = 0;
-        this.singleViewMode = false;
-        this.singleView = null;
+        this.objectCount = 0;
+        this.arrayCount = 0;
+        this.stringCount = 0;
+        this.numberCount = 0;
         this.active = false;  // Will be set to true by get()
         this.fixedSliceCount = 0;
         this.fieldNameArrayPoolIndex = 0;  // Reset array pool index
         this.fieldIndicesArrayPoolIndex = 0;  // Reset field indices pool index
-        // Note: Don't clear fixedViews array - we'll overwrite slots
-        // Note: Don't null overflowViews - keep capacity for reuse
-        // Note: Don't clear fieldNameArrayPool - arrays are reused
-        // Note: Don't clear fieldIndicesArrayPool - arrays are reused
-        if (overflowViews != null) {
-            overflowViews.clear();
+        // Note: Don't clear fixed arrays - we'll overwrite slots
+        // Note: Keep overflow list capacity for reuse
+        if (overflowObjects != null) {
+            overflowObjects.clear();
+        }
+        if (overflowArrays != null) {
+            overflowArrays.clear();
+        }
+        if (overflowStrings != null) {
+            overflowStrings.clear();
+        }
+        if (overflowNumbers != null) {
+            overflowNumbers.clear();
         }
         if (overflowSlices != null) {
             overflowSlices.clear();
@@ -290,37 +310,51 @@ public final class JsonParseContext implements AutoCloseable {
     }
     
     /**
-     * Add a view to tracking (optimized with fast paths).
+     * Add a view to tracking (optimized with type-specific arrays to avoid instanceof on return).
      */
     private void addView(JsonValue view) {
-        // Single-view fast path (most common for simple JSON)
-        if (fixedCount == 0 && overflowViews == null) {
-            singleViewMode = true;
-            singleView = view;
-            fixedCount = 1;  // Mark as used
-            return;
+        // Route to type-specific array (eliminates instanceof checks later)
+        if (view instanceof JsonObject) {
+            JsonObject obj = (JsonObject) view;
+            if (objectCount < FIXED_CAPACITY) {
+                fixedObjects[objectCount++] = obj;
+            } else {
+                if (overflowObjects == null) {
+                    overflowObjects = new ArrayList<>(16);
+                }
+                overflowObjects.add(obj);
+            }
+        } else if (view instanceof JsonArray) {
+            JsonArray arr = (JsonArray) view;
+            if (arrayCount < FIXED_CAPACITY) {
+                fixedArrays[arrayCount++] = arr;
+            } else {
+                if (overflowArrays == null) {
+                    overflowArrays = new ArrayList<>(16);
+                }
+                overflowArrays.add(arr);
+            }
+        } else if (view instanceof JsonStringView) {
+            JsonStringView str = (JsonStringView) view;
+            if (stringCount < FIXED_CAPACITY) {
+                fixedStrings[stringCount++] = str;
+            } else {
+                if (overflowStrings == null) {
+                    overflowStrings = new ArrayList<>(32);
+                }
+                overflowStrings.add(str);
+            }
+        } else if (view instanceof JsonNumberView) {
+            JsonNumberView num = (JsonNumberView) view;
+            if (numberCount < FIXED_CAPACITY) {
+                fixedNumbers[numberCount++] = num;
+            } else {
+                if (overflowNumbers == null) {
+                    overflowNumbers = new ArrayList<>(32);
+                }
+                overflowNumbers.add(num);
+            }
         }
-        
-        // Exit single-view mode if we get a second view
-        if (singleViewMode) {
-            singleViewMode = false;
-            fixedViews[0] = singleView;
-            fixedViews[1] = view;
-            fixedCount = 2;
-            return;
-        }
-        
-        // Fixed array fast path
-        if (fixedCount < FIXED_CAPACITY) {
-            fixedViews[fixedCount++] = view;
-            return;
-        }
-        
-        // Overflow to ArrayList (rare for most JSON)
-        if (overflowViews == null) {
-            overflowViews = new ArrayList<>(32);
-        }
-        overflowViews.add(view);
     }
     
     /**
@@ -411,28 +445,53 @@ public final class JsonParseContext implements AutoCloseable {
     @Override
     public void close() {
         try {
-            // Single-view fast path
-            if (singleViewMode) {
-                ViewPools.returnView(singleView);
-                singleView = null;
-                singleViewMode = false;
-                fixedCount = 0;
-                // Note: Still need to return slices even in single-view mode
-            } else {
-                // Return views from fixed array
-                for (int i = 0; i < fixedCount; i++) {
-                    ViewPools.returnView(fixedViews[i]);
-                    fixedViews[i] = null;  // Help GC
+            // Return all tracked views directly to their pools (no instanceof checks!)
+            // Objects
+            for (int i = 0; i < objectCount; i++) {
+                ViewPools.OBJECT_POOL.release(fixedObjects[i]);
+                fixedObjects[i] = null;  // Help GC
+            }
+            if (overflowObjects != null && !overflowObjects.isEmpty()) {
+                for (JsonObject obj : overflowObjects) {
+                    ViewPools.OBJECT_POOL.release(obj);
                 }
-                fixedCount = 0;
-                
-                // Return views from overflow list
-                if (overflowViews != null && !overflowViews.isEmpty()) {
-                    for (JsonValue view : overflowViews) {
-                        ViewPools.returnView(view);
-                    }
-                    overflowViews.clear();
+                overflowObjects.clear();
+            }
+            
+            // Arrays
+            for (int i = 0; i < arrayCount; i++) {
+                ViewPools.ARRAY_POOL.release(fixedArrays[i]);
+                fixedArrays[i] = null;
+            }
+            if (overflowArrays != null && !overflowArrays.isEmpty()) {
+                for (JsonArray arr : overflowArrays) {
+                    ViewPools.ARRAY_POOL.release(arr);
                 }
+                overflowArrays.clear();
+            }
+            
+            // Strings
+            for (int i = 0; i < stringCount; i++) {
+                ViewPools.STRING_POOL.release(fixedStrings[i]);
+                fixedStrings[i] = null;
+            }
+            if (overflowStrings != null && !overflowStrings.isEmpty()) {
+                for (JsonStringView str : overflowStrings) {
+                    ViewPools.STRING_POOL.release(str);
+                }
+                overflowStrings.clear();
+            }
+            
+            // Numbers
+            for (int i = 0; i < numberCount; i++) {
+                ViewPools.NUMBER_POOL.release(fixedNumbers[i]);
+                fixedNumbers[i] = null;
+            }
+            if (overflowNumbers != null && !overflowNumbers.isEmpty()) {
+                for (JsonNumberView num : overflowNumbers) {
+                    ViewPools.NUMBER_POOL.release(num);
+                }
+                overflowNumbers.clear();
             }
             
             // Return slices from fixed array
@@ -462,12 +521,18 @@ public final class JsonParseContext implements AutoCloseable {
      * @return the number of tracked views
      */
     public int getTrackedViewCount() {
-        if (singleViewMode) {
-            return 1;
+        int count = objectCount + arrayCount + stringCount + numberCount;
+        if (overflowObjects != null) {
+            count += overflowObjects.size();
         }
-        int count = fixedCount;
-        if (overflowViews != null) {
-            count += overflowViews.size();
+        if (overflowArrays != null) {
+            count += overflowArrays.size();
+        }
+        if (overflowStrings != null) {
+            count += overflowStrings.size();
+        }
+        if (overflowNumbers != null) {
+            count += overflowNumbers.size();
         }
         return count;
     }

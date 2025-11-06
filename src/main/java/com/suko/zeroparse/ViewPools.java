@@ -27,12 +27,12 @@ public final class ViewPools {
     private static final int SLICE_STRIPES = 4;
     private static final int SLICE_STRIPE_SIZE = 256;  // Slices are very common
     
-    // Striped pools for each view type
-    private static final StripedObjectPool<JsonObject> OBJECT_POOL;
-    private static final StripedObjectPool<JsonArray> ARRAY_POOL;
-    private static final StripedObjectPool<JsonStringView> STRING_POOL;
-    private static final StripedObjectPool<JsonNumberView> NUMBER_POOL;
-    private static final StripedObjectPool<Utf8Slice> SLICE_POOL;
+    // Striped pools for each view type (public for direct access from JsonParseContext)
+    public static final StripedObjectPool<JsonObject> OBJECT_POOL;
+    public static final StripedObjectPool<JsonArray> ARRAY_POOL;
+    public static final StripedObjectPool<JsonStringView> STRING_POOL;
+    public static final StripedObjectPool<JsonNumberView> NUMBER_POOL;
+    public static final StripedObjectPool<Utf8Slice> SLICE_POOL;
     
     static {
         // Initialize striped pools with auto-grow enabled (instant growth, cooldown=0)

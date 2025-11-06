@@ -45,6 +45,22 @@ public interface InputCursor {
     Utf8Slice slice(int start, int length);
     
     /**
+     * Get direct access to the underlying byte array.
+     * This is used for zero-allocation number parsing.
+     * 
+     * @return the underlying byte array, or null if not backed by a byte array
+     */
+    byte[] getUnderlyingBytes();
+    
+    /**
+     * Get the offset into the underlying byte array for a given position in this cursor.
+     * 
+     * @param position the position in this cursor (0-based)
+     * @return the corresponding offset in the underlying byte array
+     */
+    int getUnderlyingOffset(int position);
+    
+    /**
      * Check if the input is empty.
      * 
      * @return true if the length is 0

@@ -252,9 +252,17 @@ public final class JsonStringView implements JsonValue {
             return cachedDouble;
         }
         
-        // Parse and cache
-        Utf8Slice slice = slice();
-        cachedDouble = NumberParser.parseDouble(slice.getSource(), slice.getOffset(), slice.getLength());
+        // Parse and cache - use direct byte array access without creating slice
+        if (directSlice != null) {
+            cachedDouble = NumberParser.parseDouble(directSlice.getSource(), directSlice.getOffset(), directSlice.getLength());
+        } else {
+            // Parse directly from cursor using underlying bytes (ZERO allocation!)
+            int start = astStore.getStart(nodeIndex);
+            int length = astStore.getEnd(nodeIndex) - start;
+            byte[] bytes = cursor.getUnderlyingBytes();
+            int offset = cursor.getUnderlyingOffset(start);
+            cachedDouble = NumberParser.parseDouble(bytes, offset, length);
+        }
         hasDoubleCache = true;
         return cachedDouble;
     }
@@ -273,12 +281,20 @@ public final class JsonStringView implements JsonValue {
             return (float) cachedDouble;
         }
         
-        // Parse as float and cache as double
-        Utf8Slice slice = slice();
-        float value = NumberParser.parseFloat(slice.getSource(), slice.getOffset(), slice.getLength());
-        cachedDouble = value;
+        // Parse as float and cache as double - use direct byte array access
+        if (directSlice != null) {
+            float value = NumberParser.parseFloat(directSlice.getSource(), directSlice.getOffset(), directSlice.getLength());
+            cachedDouble = value;
+        } else {
+            int start = astStore.getStart(nodeIndex);
+            int length = astStore.getEnd(nodeIndex) - start;
+            byte[] bytes = cursor.getUnderlyingBytes();
+            int offset = cursor.getUnderlyingOffset(start);
+            float value = NumberParser.parseFloat(bytes, offset, length);
+            cachedDouble = value;
+        }
         hasDoubleCache = true;
-        return value;
+        return (float) cachedDouble;
     }
     
     /**
@@ -295,9 +311,16 @@ public final class JsonStringView implements JsonValue {
             return cachedLong;
         }
         
-        // Parse and cache
-        Utf8Slice slice = slice();
-        cachedLong = NumberParser.parseLong(slice.getSource(), slice.getOffset(), slice.getLength());
+        // Parse and cache - use direct byte array access
+        if (directSlice != null) {
+            cachedLong = NumberParser.parseLong(directSlice.getSource(), directSlice.getOffset(), directSlice.getLength());
+        } else {
+            int start = astStore.getStart(nodeIndex);
+            int length = astStore.getEnd(nodeIndex) - start;
+            byte[] bytes = cursor.getUnderlyingBytes();
+            int offset = cursor.getUnderlyingOffset(start);
+            cachedLong = NumberParser.parseLong(bytes, offset, length);
+        }
         hasLongCache = true;
         return cachedLong;
     }
@@ -319,9 +342,17 @@ public final class JsonStringView implements JsonValue {
             return (int) cachedLong;
         }
         
-        // Parse as int directly
-        Utf8Slice slice = slice();
-        int value = NumberParser.parseInt(slice.getSource(), slice.getOffset(), slice.getLength());
+        // Parse as int directly - use direct byte array access
+        int value;
+        if (directSlice != null) {
+            value = NumberParser.parseInt(directSlice.getSource(), directSlice.getOffset(), directSlice.getLength());
+        } else {
+            int start = astStore.getStart(nodeIndex);
+            int length = astStore.getEnd(nodeIndex) - start;
+            byte[] bytes = cursor.getUnderlyingBytes();
+            int offset = cursor.getUnderlyingOffset(start);
+            value = NumberParser.parseInt(bytes, offset, length);
+        }
         
         // Cache as long for future use
         cachedLong = value;
