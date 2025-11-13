@@ -67,7 +67,7 @@ buildNumber.properties
 
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,java,maven
 
-Allocation_Hot_Spots*.csv
-Call_Tree*.xml
-Hot_Spots*.xml
-Recorded_Objects*.csv
+Allocation_Hot_Spots*.*
+Call_Tree*.*
+Hot_Spots*.*
+Recorded_Objects*.*
