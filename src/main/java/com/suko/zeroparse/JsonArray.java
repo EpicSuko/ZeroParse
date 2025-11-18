@@ -41,7 +41,7 @@ public final class JsonArray implements JsonValue, Iterable<JsonValue> {
     /**
      * Default constructor for object pooling.
      */
-    JsonArray() {
+    public JsonArray() {
         this.astStore = null;
         this.nodeIndex = 0;
         this.cursor = null;

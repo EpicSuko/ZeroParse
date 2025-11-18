@@ -57,7 +57,7 @@ public final class JsonNumberView implements JsonValue {
     /**
      * Default constructor for object pooling.
      */
-    JsonNumberView() {
+    public JsonNumberView() {
         this.astStore = null;
         this.nodeIndex = 0;
         this.cursor = null;

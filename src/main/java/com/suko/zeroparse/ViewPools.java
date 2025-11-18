@@ -1,7 +1,7 @@
 package com.suko.zeroparse;
 
-import com.suko.pool.StripedObjectPool;
-import com.suko.pool.AutoGrowConfig;
+import com.suko.pool.ArrayObjectPool;
+import com.suko.pool.ObjectPool;
 
 /**
  * Manages object pools for JSON view objects to achieve garbage-free parsing.
@@ -28,56 +28,19 @@ public final class ViewPools {
     private static final int SLICE_STRIPE_SIZE = 256;  // Slices are very common
     
     // Striped pools for each view type (public for direct access from JsonParseContext)
-    public static final StripedObjectPool<JsonObject> OBJECT_POOL;
-    public static final StripedObjectPool<JsonArray> ARRAY_POOL;
-    public static final StripedObjectPool<JsonStringView> STRING_POOL;
-    public static final StripedObjectPool<JsonNumberView> NUMBER_POOL;
-    public static final StripedObjectPool<Utf8Slice> SLICE_POOL;
+    public static final ObjectPool<JsonObject> OBJECT_POOL;
+    public static final ObjectPool<JsonArray> ARRAY_POOL;
+    public static final ObjectPool<JsonStringView> STRING_POOL;
+    public static final ObjectPool<JsonNumberView> NUMBER_POOL;
+    public static final ObjectPool<Utf8Slice> SLICE_POOL;
     
     static {
-        // Initialize striped pools with auto-grow enabled (instant growth, cooldown=0)
-        OBJECT_POOL = new StripedObjectPool<>(
-            JsonObject::new,
-            JsonObject::reset,
-            OBJECT_STRIPES,
-            OBJECT_STRIPE_SIZE
-        );
-        
-        ARRAY_POOL = new StripedObjectPool<>(
-            JsonArray::new,
-            JsonArray::reset,
-            ARRAY_STRIPES,
-            ARRAY_STRIPE_SIZE
-        );
-        
-        STRING_POOL = new StripedObjectPool<>(
-            JsonStringView::new,
-            JsonStringView::reset,
-            STRING_STRIPES,
-            STRING_STRIPE_SIZE
-        );
-        
-        NUMBER_POOL = new StripedObjectPool<>(
-            JsonNumberView::new,
-            JsonNumberView::reset,
-            NUMBER_STRIPES,
-            NUMBER_STRIPE_SIZE
-        );
-        
-        SLICE_POOL = new StripedObjectPool<>(
-            Utf8Slice::new,
-            Utf8Slice::reset,
-            SLICE_STRIPES,
-            SLICE_STRIPE_SIZE
-        );
-        
-        // Enable auto-grow with zero cooldown for instant capacity expansion
-        AutoGrowConfig config = new AutoGrowConfig(1, 0, 1, 0);
-        OBJECT_POOL.enableAutoGrow(config);
-        ARRAY_POOL.enableAutoGrow(config);
-        STRING_POOL.enableAutoGrow(config);
-        NUMBER_POOL.enableAutoGrow(config);
-        SLICE_POOL.enableAutoGrow(config);
+
+        OBJECT_POOL = new ArrayObjectPool<>(OBJECT_STRIPES * OBJECT_STRIPE_SIZE, JsonObject.class);
+        ARRAY_POOL = new ArrayObjectPool<>(ARRAY_STRIPES * ARRAY_STRIPE_SIZE, JsonArray.class);
+        STRING_POOL = new ArrayObjectPool<>(STRING_STRIPES * STRING_STRIPE_SIZE, JsonStringView.class);
+        NUMBER_POOL = new ArrayObjectPool<>(NUMBER_STRIPES * NUMBER_STRIPE_SIZE, JsonNumberView.class);
+        SLICE_POOL = new ArrayObjectPool<>(SLICE_STRIPES * SLICE_STRIPE_SIZE, Utf8Slice.class);
     }
     
     private ViewPools() {
@@ -88,28 +51,28 @@ public final class ViewPools {
      * Borrow a JsonObject from the pool.
      */
     public static JsonObject borrowObject() {
-        return OBJECT_POOL.acquire();
+        return OBJECT_POOL.get();
     }
     
     /**
      * Borrow a JsonArray from the pool.
      */
     public static JsonArray borrowArray() {
-        return ARRAY_POOL.acquire();
+        return ARRAY_POOL.get();
     }
     
     /**
      * Borrow a JsonStringView from the pool.
      */
     public static JsonStringView borrowString() {
-        return STRING_POOL.acquire();
+        return STRING_POOL.get();
     }
     
     /**
      * Borrow a JsonNumberView from the pool.
      */
     public static JsonNumberView borrowNumber() {
-        return NUMBER_POOL.acquire();
+        return NUMBER_POOL.get();
     }
     
     /**
@@ -117,7 +80,7 @@ public final class ViewPools {
      * The slice is returned uninitialized - caller must call reset().
      */
     public static Utf8Slice borrowSlice() {
-        return SLICE_POOL.acquire();
+        return SLICE_POOL.get();
     }
     
     /**
@@ -129,7 +92,7 @@ public final class ViewPools {
      * @return a pooled and initialized Utf8Slice
      */
     public static Utf8Slice borrowSlice(byte[] source, int offset, int length) {
-        Utf8Slice slice = SLICE_POOL.acquire();
+        Utf8Slice slice = SLICE_POOL.get();
         slice.reset(source, offset, length);
         return slice;
     }

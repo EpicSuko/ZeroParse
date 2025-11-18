@@ -55,7 +55,7 @@ public final class JsonStringView implements JsonValue {
     /**
      * Default constructor for object pooling.
      */
-    JsonStringView() {
+    public JsonStringView() {
         this.astStore = null;
         this.nodeIndex = 0;
         this.cursor = null;

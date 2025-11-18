@@ -28,7 +28,7 @@ public final class Utf8Slice {
     /**
      * Package-private constructor for pooled instances.
      */
-    Utf8Slice() {
+    public Utf8Slice() {
         this.source = null;
         this.offset = 0;
         this.length = 0;

@@ -48,7 +48,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     /**
      * Default constructor for object pooling.
      */
-    JsonObject() {
+    public JsonObject() {
         this.astStore = null;
         this.nodeIndex = 0;
         this.cursor = null;
