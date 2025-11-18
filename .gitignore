@@ -71,3 +71,4 @@ Allocation_Hot_Spots*.*
 Call_Tree*.*
 Hot_Spots*.*
 Recorded_Objects*.*
+jprofiler-snapshots/*
