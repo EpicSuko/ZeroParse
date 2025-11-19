@@ -66,49 +66,22 @@ public final class AstStore {
      * @param type the node type
      * @param start the start position in the input
      * @param end the end position in the input
-     * @return the node index
-     */
-    public int addNode(byte type, int start, int end) {
-        ensureCapacity();
-        
-        int index = size++;
-        types[index] = type;
-        starts[index] = start;
-        ends[index] = end;
-        firstChildren[index] = -1;
-        nextSiblings[index] = -1;
-        flags[index] = 0;
-        
-        return index;
-    }
-    
-    /**
-     * Add a new node with flags.
-     * 
-     * @param type the node type
-     * @param start the start position in the input
-     * @param end the end position in the input
-     * @param flags the node flags
-     * @return the node index
-     */
-    public int addNode(byte type, int start, int end, int flags) {
-        int index = addNode(type, start, end);
-        this.flags[index] = flags;
-        return index;
-    }
-
-    /**
-     * Add a new node with flags and hashCode.
-     * 
-     * @param type the node type
-     * @param start the start position in the input
-     * @param end the end position in the input
      * @param flags the node flags
      * @param hashCode the node hashCode
      * @return the node index
      */
     public int addNode(byte type, int start, int end, int flags, int hashCode) {
-        int index = addNode(type, start, end, flags);
+        if(size >= capacity) {
+            grow();
+        }
+        
+        int index = size++;
+        this.types[index] = type;
+        this.starts[index] = start;
+        this.ends[index] = end;
+        this.firstChildren[index] = -1;
+        this.nextSiblings[index] = -1;
+        this.flags[index] = flags;
         this.hashCodes[index] = hashCode;
         return index;
     }
@@ -297,33 +270,31 @@ public final class AstStore {
         rootIndex = -1;
     }
     
-    private void ensureCapacity() {
-        if (size >= capacity) {
-            int newCapacity = capacity * GROWTH_FACTOR;
-            byte[] newTypes = new byte[newCapacity];
-            int[] newStarts = new int[newCapacity];
-            int[] newEnds = new int[newCapacity];
-            int[] newFirstChildren = new int[newCapacity];
-            int[] newNextSiblings = new int[newCapacity];
-            int[] newFlags = new int[newCapacity];
-            int[] newHashCodes = new int[newCapacity];
+    private void grow() {
+        int newCapacity = capacity * GROWTH_FACTOR;
+        byte[] newTypes = new byte[newCapacity];
+        int[] newStarts = new int[newCapacity];
+        int[] newEnds = new int[newCapacity];
+        int[] newFirstChildren = new int[newCapacity];
+        int[] newNextSiblings = new int[newCapacity];
+        int[] newFlags = new int[newCapacity];
+        int[] newHashCodes = new int[newCapacity];
             
-            System.arraycopy(types, 0, newTypes, 0, size);
-            System.arraycopy(starts, 0, newStarts, 0, size);
-            System.arraycopy(ends, 0, newEnds, 0, size);
-            System.arraycopy(firstChildren, 0, newFirstChildren, 0, size);
-            System.arraycopy(nextSiblings, 0, newNextSiblings, 0, size);
-            System.arraycopy(flags, 0, newFlags, 0, size);
-            System.arraycopy(hashCodes, 0, newHashCodes, 0, size);
+        System.arraycopy(types, 0, newTypes, 0, size);
+        System.arraycopy(starts, 0, newStarts, 0, size);
+        System.arraycopy(ends, 0, newEnds, 0, size);
+        System.arraycopy(firstChildren, 0, newFirstChildren, 0, size);
+        System.arraycopy(nextSiblings, 0, newNextSiblings, 0, size);
+        System.arraycopy(flags, 0, newFlags, 0, size);
+        System.arraycopy(hashCodes, 0, newHashCodes, 0, size);
             
-            this.types = newTypes;
-            this.starts = newStarts;
-            this.ends = newEnds;
-            this.firstChildren = newFirstChildren;
-            this.nextSiblings = newNextSiblings;
-            this.flags = newFlags;
-            this.hashCodes = newHashCodes;
-            this.capacity = newCapacity;
-        }
+        this.types = newTypes;
+        this.starts = newStarts;
+        this.ends = newEnds;
+        this.firstChildren = newFirstChildren;
+        this.nextSiblings = newNextSiblings;
+        this.flags = newFlags;
+        this.hashCodes = newHashCodes;
+        this.capacity = newCapacity;
     }
 }

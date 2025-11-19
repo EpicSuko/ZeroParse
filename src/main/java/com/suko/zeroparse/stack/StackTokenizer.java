@@ -132,7 +132,7 @@ public final class StackTokenizer {
         int start = currentOffset;
         currentOffset++; // Skip opening brace
         
-        int objectIndex = astStore.addNode(AstStore.TYPE_OBJECT, start, -1);
+        int objectIndex = astStore.addNode(AstStore.TYPE_OBJECT, start, -1, 0, -1);
         pushStack(objectIndex);
         
         skipWhitespace();
@@ -198,7 +198,7 @@ public final class StackTokenizer {
                 int fieldValueIndex = parseValue();
                 
                 // Create a field node that contains name and value
-                int fieldNodeIndex = astStore.addNode(AstStore.TYPE_FIELD, fieldNameIndex, fieldValueIndex);
+                int fieldNodeIndex = astStore.addNode(AstStore.TYPE_FIELD, fieldNameIndex, fieldValueIndex, 0, -1);
                 astStore.setFirstChild(fieldNodeIndex, fieldNameIndex);
                 astStore.setNextSibling(fieldNameIndex, fieldValueIndex);
                 astStore.addChild(objectIndex, fieldNodeIndex);
@@ -217,7 +217,7 @@ public final class StackTokenizer {
         int start = currentOffset;
         currentOffset++; // Skip opening bracket
         
-        int arrayIndex = astStore.addNode(AstStore.TYPE_ARRAY, start, -1);
+        int arrayIndex = astStore.addNode(AstStore.TYPE_ARRAY, start, -1, 0, -1);
         pushStack(arrayIndex);
         
         skipWhitespace();
@@ -399,7 +399,7 @@ public final class StackTokenizer {
                     if (b == CH_QUOTE) {
                         currentOffset = offset + 1;
                         int flags = escaped ? AstStore.FLAG_STRING_ESCAPED : 0;
-                        return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags);
+                        return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags, -1);
                     } else if (b == CH_BACKSLASH) {
                         offset++;
                         if (offset >= length) {
@@ -478,7 +478,7 @@ public final class StackTokenizer {
                     if (b == CH_QUOTE) {
                         currentOffset = offset + 1;
                         int flags = escaped ? AstStore.FLAG_STRING_ESCAPED : 0;
-                        return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags);
+                        return astStore.addNode(AstStore.TYPE_STRING, start + 1, offset, flags, -1);
                     } else if (b == CH_BACKSLASH) {
                         offset++;
                         if (offset >= length) {
@@ -617,7 +617,7 @@ public final class StackTokenizer {
         
         currentOffset = offset;
         int flags = isFloat ? AstStore.FLAG_NUMBER_FLOAT : 0;
-        return astStore.addNode(AstStore.TYPE_NUMBER, start, currentOffset, flags);
+        return astStore.addNode(AstStore.TYPE_NUMBER, start, currentOffset, flags, -1);
     }
     
     private int parseTrue() throws JsonParseException {
@@ -643,7 +643,7 @@ public final class StackTokenizer {
         }
         
         currentOffset += 4;
-        return astStore.addNode(AstStore.TYPE_BOOLEAN_TRUE, start, currentOffset);
+        return astStore.addNode(AstStore.TYPE_BOOLEAN_TRUE, start, currentOffset, 0, -1);
     }
     
     private int parseFalse() throws JsonParseException {
@@ -669,7 +669,7 @@ public final class StackTokenizer {
         }
         
         currentOffset += 5;
-        return astStore.addNode(AstStore.TYPE_BOOLEAN_FALSE, start, currentOffset);
+        return astStore.addNode(AstStore.TYPE_BOOLEAN_FALSE, start, currentOffset, 0, -1);
     }
     
     private int parseNull() throws JsonParseException {
@@ -695,7 +695,7 @@ public final class StackTokenizer {
         }
         
         currentOffset += 4;
-        return astStore.addNode(AstStore.TYPE_NULL, start, currentOffset);
+        return astStore.addNode(AstStore.TYPE_NULL, start, currentOffset, 0, -1);
     }
     
     private void skipWhitespace() {
