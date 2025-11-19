@@ -11,7 +11,7 @@ public class ZeroParsePooledTest {
         String json = "{\"name\":\"test\",\"value\":42}";
         Buffer buffer = Buffer.buffer(json);
         
-        try(JsonParseContext ctx = JsonParseContext.get()) {
+        try(JsonParseContext ctx = new JsonParseContext()) {
             JsonValue root = ctx.parse(buffer);
             assertNotNull(root);
             assertTrue(root.isObject());
@@ -34,7 +34,7 @@ public class ZeroParsePooledTest {
         String json = "[1,2,3]";
         Buffer buffer = Buffer.buffer(json);
         
-        try(JsonParseContext ctx = JsonParseContext.get()) {
+        try(JsonParseContext ctx = new JsonParseContext()) {
             JsonValue root = ctx.parse(buffer);
             assertNotNull(root);
             assertTrue(root.isArray());
@@ -53,7 +53,7 @@ public class ZeroParsePooledTest {
         String json = "\"hello world\"";
         Buffer buffer = Buffer.buffer(json);
         
-        try(JsonParseContext ctx = JsonParseContext.get()) {
+        try(JsonParseContext ctx = new JsonParseContext()) {
             JsonValue root = ctx.parse(buffer);
             assertNotNull(root);
             assertTrue(root.isString());
@@ -66,14 +66,14 @@ public class ZeroParsePooledTest {
     public void testParseBoolean() {
         Buffer trueBuffer = Buffer.buffer("true");
 
-        try(JsonParseContext ctx = JsonParseContext.get()) {
+        try(JsonParseContext ctx = new JsonParseContext()) {
             JsonValue trueValue = ctx.parse(trueBuffer);
             assertTrue(trueValue.isBoolean());
             assertEquals(JsonBoolean.TRUE, trueValue.asBoolean());
         }
         
         Buffer falseBuffer = Buffer.buffer("false");
-        try(JsonParseContext ctx = JsonParseContext.get()) {
+        try(JsonParseContext ctx = new JsonParseContext()) {
             JsonValue falseValue = ctx.parse(falseBuffer);
             assertTrue(falseValue.isBoolean());
             assertEquals(JsonBoolean.FALSE, falseValue.asBoolean());
@@ -83,7 +83,7 @@ public class ZeroParsePooledTest {
     @Test
     public void testParseNull() {
         Buffer buffer = Buffer.buffer("null");
-        try(JsonParseContext ctx = JsonParseContext.get()) {
+        try(JsonParseContext ctx = new JsonParseContext()) {
             JsonValue root = ctx.parse(buffer);
             assertNotNull(root);
             assertTrue(root.isNull());
@@ -94,7 +94,7 @@ public class ZeroParsePooledTest {
     @Test
     public void testParseNumber() {
         Buffer buffer = Buffer.buffer("123.45");
-        try(JsonParseContext ctx = JsonParseContext.get()) {
+        try(JsonParseContext ctx = new JsonParseContext()) {
             JsonValue root = ctx.parse(buffer);
             assertNotNull(root);
             assertTrue(root.isNumber());
@@ -107,7 +107,7 @@ public class ZeroParsePooledTest {
     @Test
     public void testParseFromString() {
         String json = "{\"message\":\"Hello, World!\"}";
-        try(JsonParseContext ctx = JsonParseContext.get()) {
+        try(JsonParseContext ctx = new JsonParseContext()) {
             JsonValue root = ctx.parse(json);
             assertNotNull(root);
             assertTrue(root.isObject());
@@ -122,7 +122,7 @@ public class ZeroParsePooledTest {
     public void testParseFromByteArray() {
         String json = "{\"id\":123}";
         byte[] data = json.getBytes();
-        try(JsonParseContext ctx = JsonParseContext.get()) {
+        try(JsonParseContext ctx = new JsonParseContext()) {
             JsonValue root = ctx.parse(data);
             assertNotNull(root);
             assertTrue(root.isObject());
