@@ -100,7 +100,12 @@ public final class JsonParser {
         if (json == null) {
             throw new IllegalArgumentException("JSON string cannot be null");
         }
-        return parse(new StringCursor(json));
+        StringCursor cursor = cursorPools.borrowStringCursor(json);
+        try {
+            return parse(cursor);
+        } finally {
+            cursorPools.returnStringCursor(cursor);
+        }
     }
 
     // Package-private helper used by JsonParseContext for pooled parsing
@@ -108,9 +113,14 @@ public final class JsonParser {
         if (json == null) {
             throw new IllegalArgumentException("JSON string cannot be null");
         }
-        StringCursor cursor = new StringCursor(json);
-        cursor.setContext(context);
-        return parse(cursor, context);
+        StringCursor cursor = cursorPools.borrowStringCursor(json);
+        try {
+            cursor.setContext(context);
+            return parse(cursor, context);
+        } finally {
+            cursor.setContext(null);
+            cursorPools.returnStringCursor(cursor);
+        }
     }
 
     // Package-private helper used by JsonParseContext for pooled parsing
@@ -310,7 +320,12 @@ public final class JsonParser {
         if (json == null) {
             throw new IllegalArgumentException("JSON string cannot be null");
         }
-        return streamArray(new StringCursor(json), null);
+        StringCursor cursor = cursorPools.borrowStringCursor(json);
+        try {
+            return streamArray(cursor, null);
+        } finally {
+            cursorPools.returnStringCursor(cursor);
+        }
     }
     
     // Package-private helper used by JsonParseContext for pooled streaming
@@ -318,9 +333,14 @@ public final class JsonParser {
         if (json == null) {
             throw new IllegalArgumentException("JSON string cannot be null");
         }
-        StringCursor cursor = new StringCursor(json);
-        cursor.setContext(context);
-        return streamArray(cursor, context);
+        StringCursor cursor = cursorPools.borrowStringCursor(json);
+        try {
+            cursor.setContext(context);
+            return streamArray(cursor, context);
+        } finally {
+            cursor.setContext(null);
+            cursorPools.returnStringCursor(cursor);
+        }
     }
     
     /**

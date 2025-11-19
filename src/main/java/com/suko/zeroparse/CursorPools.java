@@ -15,13 +15,16 @@ public final class CursorPools {
     
     private static final int BUFFER_POOL_SIZE = 32;
     private static final int BYTE_ARRAY_POOL_SIZE = 64;
+    private static final int STRING_POOL_SIZE = 32;
     
     private final ObjectPool<BufferCursor> bufferPool;
     private final ObjectPool<ByteArrayCursor> byteArrayPool;
+    private final ObjectPool<StringCursor> stringPool;
     
     public CursorPools() {
         this.bufferPool = new ArrayObjectPool<>(BUFFER_POOL_SIZE, BufferCursor.class);
         this.byteArrayPool = new ArrayObjectPool<>(BYTE_ARRAY_POOL_SIZE, ByteArrayCursor.class);
+        this.stringPool = new ArrayObjectPool<>(STRING_POOL_SIZE, StringCursor.class);
     }
     
     public BufferCursor borrowBufferCursor(Buffer buffer) {
@@ -49,6 +52,18 @@ public final class CursorPools {
     public void returnByteArrayCursor(ByteArrayCursor cursor) {
         if (cursor != null) {
             byteArrayPool.release(cursor);
+        }
+    }
+
+    public StringCursor borrowStringCursor(String data) {
+        StringCursor cursor = stringPool.get();
+        cursor.reset(data);
+        return cursor;
+    }
+
+    public void returnStringCursor(StringCursor cursor) {
+        if (cursor != null) {
+            stringPool.release(cursor);
         }
     }
 }

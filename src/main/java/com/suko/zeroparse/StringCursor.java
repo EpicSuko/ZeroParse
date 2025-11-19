@@ -10,8 +10,8 @@ import java.nio.charset.StandardCharsets;
  */
 public final class StringCursor implements InputCursor {
     
-    private final String string;
-    private final byte[] utf8Bytes;
+    private String string;
+    private byte[] utf8Bytes;
     // Optional parse context for pooled slice creation
     private JsonParseContext context;
     
@@ -21,6 +21,18 @@ public final class StringCursor implements InputCursor {
      * @param string the String to read from
      */
     public StringCursor(String string) {
+        reset(string);
+    }
+
+    /**
+     * Default constructor for pooling.
+     */
+    public StringCursor() {
+        this.string = "";
+        this.utf8Bytes = new byte[0];
+    }
+
+    public void reset(String string) {
         if (string == null) {
             throw new IllegalArgumentException("String cannot be null");
         }
@@ -30,23 +42,23 @@ public final class StringCursor implements InputCursor {
     
     @Override
     public int length() {
-        return string.length();
+        return utf8Bytes.length;
     }
     
     @Override
     public byte byteAt(int index) {
-        if (index < 0 || index >= string.length()) {
-            throw new IndexOutOfBoundsException("Index: " + index + ", Length: " + string.length());
+        if (index < 0 || index >= utf8Bytes.length) {
+            throw new IndexOutOfBoundsException("Index: " + index + ", Length: " + utf8Bytes.length);
         }
         return utf8Bytes[index];
     }
     
     @Override
     public char charAt(int index) {
-        if (index < 0 || index >= string.length()) {
-            throw new IndexOutOfBoundsException("Index: " + index + ", Length: " + string.length());
+        if (index < 0 || index >= utf8Bytes.length) {
+            throw new IndexOutOfBoundsException("Index: " + index + ", Length: " + utf8Bytes.length);
         }
-        return string.charAt(index);
+        return (char) (utf8Bytes[index] & 0xFF);
     }
     
     @Override

@@ -104,7 +104,7 @@ public final class StackTokenizer {
         }
         
         // Parse root value - inline fast path
-        byte firstByte = (fastBytes != null) ? fastBytes[fastBytesOffset + currentOffset] : cursor.byteAt(currentOffset);
+        byte firstByte = currentByte();
         int rootIndex;
         
         if (firstByte == CH_BEGIN_CURLY) {
@@ -152,14 +152,8 @@ public final class StackTokenizer {
         boolean expectValue = false;
         boolean firstField = true;
         
-        while (currentOffset < inputLength) {
-            skipWhitespace();
-            
-            if (currentOffset >= inputLength) {
-                throw new JsonParseException("Unexpected end of input in object", currentOffset);
-            }
-            
-            byte b = (fastBytes != null) ? fastBytes[fastBytesOffset + currentOffset] : cursor.byteAt(currentOffset);
+        while (true) {
+            byte b = peekNonWhitespace();
             
             if (b == CH_END_CURLY) {
                 currentOffset++; // Skip closing brace
@@ -179,6 +173,7 @@ public final class StackTokenizer {
                 }
                 currentOffset++; // Skip comma
                 expectValue = true;
+                continue;
             } else if (b == CH_QUOTE) {
                 // Parse field name WITH HASH COMPUTATION (for fast lookups)
                 int fieldNameIndex = parseString(true);
@@ -188,14 +183,13 @@ public final class StackTokenizer {
                 if (currentOffset >= inputLength) {
                     throw new JsonParseException("Expected ':' after field name", currentOffset);
                 }
-                b = (fastBytes != null) ? fastBytes[fastBytesOffset + currentOffset] : cursor.byteAt(currentOffset);
+                b = currentByte();
                 if (b != CH_COLON) {
                     throw new JsonParseException("Expected ':' after field name", currentOffset);
                 }
                 currentOffset++; // Skip colon
                 
                 // Parse field value
-                skipWhitespace();
                 int fieldValueIndex = parseValue();
                 
                 // Create a field node that contains name and value
@@ -239,14 +233,8 @@ public final class StackTokenizer {
         boolean expectValue = false;
         boolean firstElement = true;
         
-        while (currentOffset < inputLength) {
-            skipWhitespace();
-            
-            if (currentOffset >= inputLength) {
-                throw new JsonParseException("Unexpected end of input in array", currentOffset);
-            }
-            
-            byte b = (fastBytes != null) ? fastBytes[fastBytesOffset + currentOffset] : cursor.byteAt(currentOffset);
+        while (true) {
+            byte b = peekNonWhitespace();
             
             if (b == CH_END_BRACKET) {
                 currentOffset++; // Skip closing bracket
@@ -266,6 +254,7 @@ public final class StackTokenizer {
                 }
                 currentOffset++; // Skip comma
                 expectValue = true;
+                continue;
             } else {
                 // Parse array element
                 int elementIndex = parseValue();
@@ -280,13 +269,7 @@ public final class StackTokenizer {
     }
     
     private int parseValue() throws JsonParseException {
-        skipWhitespace();
-        
-        if (currentOffset >= inputLength) {
-            throw new JsonParseException("Unexpected end of input", currentOffset);
-        }
-        
-        byte b = (fastBytes != null) ? fastBytes[fastBytesOffset + currentOffset] : cursor.byteAt(currentOffset);
+        byte b = peekNonWhitespace();
         
         switch (b) {
             case CH_QUOTE:
@@ -702,46 +685,43 @@ public final class StackTokenizer {
     }
     
     private void skipWhitespace() {
-        // Optimized whitespace skipping with direct byte access for maximum performance
         final int length = inputLength;
         int offset = currentOffset;
-        
-        if (fastBytes != null) {
-            // Fast path: direct array access
-            final byte[] bytes = fastBytes;
+        final byte[] bytes = fastBytes;
+        if (bytes != null) {
             final int baseOffset = fastBytesOffset;
             while (offset < length) {
                 byte b = bytes[baseOffset + offset];
-                switch (b) {
-                    case CH_SPACE:
-                    case CH_TAB:
-                    case CH_LINEFEED:
-                    case CH_CARRIAGE_RETURN:
-                        offset++;
-                        break;
-                    default:
-                        currentOffset = offset;
-                        return;
+                if (b == CH_SPACE || b == CH_TAB || b == CH_LINEFEED || b == CH_CARRIAGE_RETURN) {
+                    offset++;
+                } else {
+                    break;
                 }
             }
         } else {
-            // Slow path: cursor access
+            final InputCursor localCursor = cursor;
             while (offset < length) {
-                byte b = cursor.byteAt(offset);
-                switch (b) {
-                    case CH_SPACE:
-                    case CH_TAB:
-                    case CH_LINEFEED:
-                    case CH_CARRIAGE_RETURN:
-                        offset++;
-                        break;
-                    default:
-                        currentOffset = offset;
-                        return;
+                byte b = localCursor.byteAt(offset);
+                if (b == CH_SPACE || b == CH_TAB || b == CH_LINEFEED || b == CH_CARRIAGE_RETURN) {
+                    offset++;
+                } else {
+                    break;
                 }
             }
         }
         currentOffset = offset;
+    }
+    
+    private byte currentByte() {
+        return (fastBytes != null) ? fastBytes[fastBytesOffset + currentOffset] : cursor.byteAt(currentOffset);
+    }
+    
+    private byte peekNonWhitespace() throws JsonParseException {
+        skipWhitespace();
+        if (currentOffset >= inputLength) {
+            throw new JsonParseException("Unexpected end of input", currentOffset);
+        }
+        return currentByte();
     }
     
     private boolean isDigit(byte b) {
