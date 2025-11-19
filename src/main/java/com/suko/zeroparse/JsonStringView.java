@@ -76,6 +76,15 @@ public final class JsonStringView implements JsonValue {
         this.hasLongCache = false;
         this.hasDoubleCache = false;
     }
+
+    void reset(Utf8Slice slice) {
+        this.astStore = null;
+        this.nodeIndex = -1;
+        this.cursor = null;
+        this.directSlice = slice;
+        this.hasLongCache = false;
+        this.hasDoubleCache = false;
+    }
     
     /**
      * Reset this string view to null state (for pool reset action).

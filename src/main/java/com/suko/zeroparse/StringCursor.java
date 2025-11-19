@@ -38,9 +38,7 @@ public final class StringCursor implements InputCursor {
         if (index < 0 || index >= string.length()) {
             throw new IndexOutOfBoundsException("Index: " + index + ", Length: " + string.length());
         }
-        // Convert character to byte (lossy for non-ASCII)
-        char c = string.charAt(index);
-        return (byte) (c & 0xFF);
+        return utf8Bytes[index];
     }
     
     @Override
@@ -57,17 +55,13 @@ public final class StringCursor implements InputCursor {
             throw new IndexOutOfBoundsException("Invalid slice: start=" + start + ", length=" + length + ", stringLength=" + string.length());
         }
         
-        // For String input, we need to convert the substring to UTF-8 bytes
-        String substring = string.substring(start, start + length);
-        byte[] bytes = substring.getBytes(StandardCharsets.UTF_8);
-        
         // Use pooled slice when a context is attached, otherwise allocate
         JsonParseContext ctx = this.context;
         if (ctx != null) {
-            return ctx.borrowSlice(bytes, 0, bytes.length);
+            return ctx.borrowSlice(utf8Bytes, start, length);
         }
         
-        return new Utf8Slice(bytes, 0, bytes.length);
+        return new Utf8Slice(utf8Bytes, start, length);
     }
     
     @Override

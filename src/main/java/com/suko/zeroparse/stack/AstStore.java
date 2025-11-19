@@ -37,6 +37,7 @@ public final class AstStore {
     private int[] nextSiblings;
     private int[] flags;
     private int[] hashCodes;
+    private int[] lastChildren;
     
     // Current size and capacity
     private int size;
@@ -57,6 +58,7 @@ public final class AstStore {
         this.nextSiblings = new int[capacity];
         this.flags = new int[capacity];
         this.hashCodes = new int[capacity];
+        this.lastChildren = new int[capacity];
         this.size = 0;
     }
     
@@ -83,6 +85,7 @@ public final class AstStore {
         this.nextSiblings[index] = -1;
         this.flags[index] = flags;
         this.hashCodes[index] = hashCode;
+        this.lastChildren[index] = -1;
         return index;
     }
     
@@ -190,6 +193,7 @@ public final class AstStore {
      */
     public void setFirstChild(int parentIndex, int childIndex) {
         firstChildren[parentIndex] = childIndex;
+        lastChildren[parentIndex] = childIndex;
     }
     
     /**
@@ -220,15 +224,12 @@ public final class AstStore {
      */
     public void addChild(int parentIndex, int childIndex) {
         if (firstChildren[parentIndex] == -1) {
-            // First child
             firstChildren[parentIndex] = childIndex;
+            lastChildren[parentIndex] = childIndex;
         } else {
-            // Add as sibling to the last child
-            int lastChild = firstChildren[parentIndex];
-            while (nextSiblings[lastChild] != -1) {
-                lastChild = nextSiblings[lastChild];
-            }
+            int lastChild = lastChildren[parentIndex];
             nextSiblings[lastChild] = childIndex;
+            lastChildren[parentIndex] = childIndex;
         }
     }
     
@@ -279,6 +280,7 @@ public final class AstStore {
         int[] newNextSiblings = new int[newCapacity];
         int[] newFlags = new int[newCapacity];
         int[] newHashCodes = new int[newCapacity];
+        int[] newLastChildren = new int[newCapacity];
             
         System.arraycopy(types, 0, newTypes, 0, size);
         System.arraycopy(starts, 0, newStarts, 0, size);
@@ -287,6 +289,7 @@ public final class AstStore {
         System.arraycopy(nextSiblings, 0, newNextSiblings, 0, size);
         System.arraycopy(flags, 0, newFlags, 0, size);
         System.arraycopy(hashCodes, 0, newHashCodes, 0, size);
+        System.arraycopy(lastChildren, 0, newLastChildren, 0, size);
             
         this.types = newTypes;
         this.starts = newStarts;
@@ -295,6 +298,7 @@ public final class AstStore {
         this.nextSiblings = newNextSiblings;
         this.flags = newFlags;
         this.hashCodes = newHashCodes;
+        this.lastChildren = newLastChildren;
         this.capacity = newCapacity;
     }
 }

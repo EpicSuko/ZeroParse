@@ -20,6 +20,7 @@ public final class BufferCursor implements InputCursor {
     private int length;
     // Optional parse context for pooled slice creation
     private JsonParseContext context;
+    private byte[] fallbackBytes;
     
     /**
      * Create a new BufferCursor.
@@ -38,6 +39,7 @@ public final class BufferCursor implements InputCursor {
         this.cachedBytes = null;
         this.offset = 0;
         this.length = 0;
+        this.fallbackBytes = null;
     }
     
     /**
@@ -62,21 +64,21 @@ public final class BufferCursor implements InputCursor {
                     // Heap buffer - we can access the underlying array without copying!
                     this.cachedBytes = byteBuf.array();
                     this.offset = byteBuf.arrayOffset() + byteBuf.readerIndex();
+                    return;
                 } else {
-                    // Direct buffer - fall back to copying (rare in typical usage)
-                    this.cachedBytes = buffer.getBytes();
+                    ensureFallbackCapacity(length);
+                    byteBuf.getBytes(byteBuf.readerIndex(), fallbackBytes, 0, length);
+                    this.cachedBytes = fallbackBytes;
                     this.offset = 0;
+                    return;
                 }
-            } else {
-                // Unknown buffer implementation - fall back to copying
-                this.cachedBytes = buffer.getBytes();
-                this.offset = 0;
             }
-        } catch (Exception e) {
-            // Fallback if ByteBuf access fails
-            this.cachedBytes = buffer.getBytes();
-            this.offset = 0;
+        } catch (Exception ignored) {
+            // Fallback below
         }
+        byte[] bytes = buffer.getBytes();
+        this.cachedBytes = bytes;
+        this.offset = 0;
     }
     
     /**
@@ -153,5 +155,15 @@ public final class BufferCursor implements InputCursor {
 
     void setContext(JsonParseContext context) {
         this.context = context;
+    }
+
+    private void ensureFallbackCapacity(int required) {
+        if (fallbackBytes == null || fallbackBytes.length < required) {
+            int newSize = fallbackBytes == null ? 1024 : fallbackBytes.length;
+            while (newSize < required) {
+                newSize <<= 1;
+            }
+            fallbackBytes = new byte[newSize];
+        }
     }
 }

@@ -47,10 +47,10 @@ public final class StackTokenizer {
     private static final byte[] TRUE_BYTES = {'t', 'r', 'u', 'e'};
     private static final byte[] FALSE_BYTES = {'f', 'a', 'l', 's', 'e'};
     private static final byte[] NULL_BYTES = {'n', 'u', 'l', 'l'};
+    private static final int MAX_DEPTH = 1_000_000;
     
-    // Stack management
-    private final int[] stack;
-    private int stackPointer;
+    // Nesting depth tracking
+    private int depth;
     private final AstStore astStore;
     
     // Input tracking
@@ -67,8 +67,7 @@ public final class StackTokenizer {
      */
     public StackTokenizer() {
         this.astStore = new AstStore();
-        this.stack = new int[64]; // Initial stack size
-        this.stackPointer = 0;
+        this.depth = 0;
     }
     
     /**
@@ -82,7 +81,7 @@ public final class StackTokenizer {
         this.cursor = cursor;
         this.currentOffset = 0;
         this.inputLength = cursor.length(); // Cache length
-        this.stackPointer = 0;
+        this.depth = 0;
         this.astStore.reset();
         
         // Fast path optimization: get direct byte array access if available
@@ -133,7 +132,9 @@ public final class StackTokenizer {
         currentOffset++; // Skip opening brace
         
         int objectIndex = astStore.addNode(AstStore.TYPE_OBJECT, start, -1, 0, -1);
-        pushStack(objectIndex);
+        if (++depth > MAX_DEPTH) {
+            throw new JsonParseException("JSON too deeply nested", currentOffset);
+        }
         
         skipWhitespace();
         
@@ -143,7 +144,7 @@ public final class StackTokenizer {
             if (b == CH_END_CURLY) {
                 currentOffset++; // Skip closing brace
                 astStore.setEnd(objectIndex, currentOffset);
-                popStack();
+                depth--;
                 return objectIndex;
             }
         }
@@ -163,7 +164,7 @@ public final class StackTokenizer {
             if (b == CH_END_CURLY) {
                 currentOffset++; // Skip closing brace
                 astStore.setEnd(objectIndex, currentOffset);
-                popStack();
+                depth--;
                 
                 if (expectValue) {
                     throw new JsonParseException("Unexpected comma without value", currentOffset - 1);
@@ -218,7 +219,9 @@ public final class StackTokenizer {
         currentOffset++; // Skip opening bracket
         
         int arrayIndex = astStore.addNode(AstStore.TYPE_ARRAY, start, -1, 0, -1);
-        pushStack(arrayIndex);
+        if (++depth > MAX_DEPTH) {
+            throw new JsonParseException("JSON too deeply nested", currentOffset);
+        }
         
         skipWhitespace();
         
@@ -228,7 +231,7 @@ public final class StackTokenizer {
             if (b == CH_END_BRACKET) {
                 currentOffset++; // Skip closing bracket
                 astStore.setEnd(arrayIndex, currentOffset);
-                popStack();
+                depth--;
                 return arrayIndex;
             }
         }
@@ -248,7 +251,7 @@ public final class StackTokenizer {
             if (b == CH_END_BRACKET) {
                 currentOffset++; // Skip closing bracket
                 astStore.setEnd(arrayIndex, currentOffset);
-                popStack();
+                depth--;
                 
                 if (expectValue) {
                     throw new JsonParseException("Unexpected comma without value", currentOffset - 1);
@@ -743,25 +746,6 @@ public final class StackTokenizer {
     
     private boolean isDigit(byte b) {
         return b >= CH_0 && b <= CH_9;
-    }
-    
-    private void pushStack(int nodeIndex) {
-        if (stackPointer >= stack.length) {
-            // Grow stack
-            int[] newStack = new int[stack.length * 2];
-            System.arraycopy(stack, 0, newStack, 0, stackPointer);
-            // Note: we can't reassign the final field, so we'd need to make it non-final
-            // For now, we'll just throw an exception if stack overflows
-            throw new JsonParseException("Stack overflow - JSON too deeply nested", currentOffset);
-        }
-        stack[stackPointer++] = nodeIndex;
-    }
-    
-    private int popStack() {
-        if (stackPointer == 0) {
-            throw new JsonParseException("Stack underflow", currentOffset);
-        }
-        return stack[--stackPointer];
     }
     
 }

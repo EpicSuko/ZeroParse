@@ -20,12 +20,17 @@ import java.util.List;
  * 
  * <p><strong>Usage Example:</strong></p>
  * <pre>
- * try (JsonParseContext ctx = new JsonParseContext()) {
- *     JsonObject order = ctx.parse(buffer).asObject();
- *     String symbol = order.get("symbol").asString().toString();
- *     double price = order.get("price").asNumber().asDouble();
- *     processOrder(symbol, price);
- * }  // All borrowed views automatically returned to pool
+ * // Reuse ctx inside an event-loop or tight loop:
+ * JsonParseContext ctx = new JsonParseContext();
+ * ...
+ * ctx.close(); // return previous views
+ * JsonObject order = ctx.parse(buffer).asObject();
+ * String symbol = order.get("symbol").asString().toString();
+ * double price = order.get("price").asNumber().asDouble();
+ * processOrder(symbol, price);
+ * // Repeat: ctx.close(); ctx.parse(...);
+ * // Streaming arrays:
+ * JsonArrayCursor cursor = ctx.streamArray(bufferWithArray);
  * </pre>
  * 
  * <p><strong>Benefits:</strong></p>
@@ -75,8 +80,6 @@ public final class JsonParseContext implements AutoCloseable {
     // Reusable integer array for building field indices (avoids ArrayList allocation)
     private final int[] fieldIndexBuffer;
     
-    // Active flag (used only for debugging/monitoring)
-    private boolean active;
     
     /**
      * Create a new parse context with default parser and view pools.
@@ -130,7 +133,6 @@ public final class JsonParseContext implements AutoCloseable {
      */
     private void reset() {
         this.viewCount = 0;
-        this.active = false;
         this.fixedSliceCount = 0;
         this.fieldNameArrayPoolIndex = 0;  // Reset array pool index
         this.fieldIndicesArrayPoolIndex = 0;  // Reset field indices pool index
@@ -158,7 +160,6 @@ public final class JsonParseContext implements AutoCloseable {
      */
     public JsonValue parse(Buffer buffer) {
         reset();
-        this.active = true;
         JsonValue root = parser.parse(buffer, this);
         trackView(root);
         setContextOnRoot(root);
@@ -176,7 +177,6 @@ public final class JsonParseContext implements AutoCloseable {
      */
     public JsonValue parse(String json) {
         reset();
-        this.active = true;
         JsonValue root = parser.parse(json, this);
         trackView(root);
         setContextOnRoot(root);
@@ -194,7 +194,6 @@ public final class JsonParseContext implements AutoCloseable {
      */
     public JsonValue parse(byte[] bytes) {
         reset();
-        this.active = true;
         JsonValue root = parser.parse(bytes, 0, bytes.length, this);
         trackView(root);
         setContextOnRoot(root);
@@ -207,7 +206,6 @@ public final class JsonParseContext implements AutoCloseable {
      */
     public JsonArrayCursor streamArray(Buffer buffer) {
         reset();
-        this.active = true;
         return parser.streamArray(buffer, this);
     }
 
@@ -216,7 +214,6 @@ public final class JsonParseContext implements AutoCloseable {
      */
     public JsonArrayCursor streamArray(String json) {
         reset();
-        this.active = true;
         return parser.streamArray(json, this);
     }
 
@@ -225,7 +222,6 @@ public final class JsonParseContext implements AutoCloseable {
      */
     public JsonArrayCursor streamArray(byte[] bytes) {
         reset();
-        this.active = true;
         return parser.streamArray(bytes, 0, bytes.length, this);
     }
     
@@ -348,6 +344,25 @@ public final class JsonParseContext implements AutoCloseable {
         Utf8Slice slice = viewPools.borrowSlice(source, offset, length);
         trackSlice(slice);
         return slice;
+    }
+
+    /**
+     * Borrow a pooled string view backed by the provided slice.
+     */
+    JsonStringView borrowStringView(Utf8Slice slice) {
+        JsonStringView view = viewPools.borrowString();
+        view.reset(slice);
+        addView(view);
+        return view;
+    }
+
+    /**
+     * Borrow a pooled substring from an existing string view.
+     */
+    public JsonStringView borrowSubString(JsonStringView source, int start, int length) {
+        Utf8Slice base = source.slice();
+        Utf8Slice sub = viewPools.borrowSlice(base.getSource(), base.getOffset() + start, length);
+        return borrowStringView(sub);
     }
     
     /**
@@ -490,8 +505,7 @@ public final class JsonParseContext implements AutoCloseable {
                 overflowSlices.clear();
             }
         } finally {
-            // Clear active flag (zero allocation)
-            active = false;
+            // no-op
         }
     }
     
