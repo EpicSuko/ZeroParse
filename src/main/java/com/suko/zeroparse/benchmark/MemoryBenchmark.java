@@ -1,7 +1,6 @@
 package com.suko.zeroparse.benchmark;
 
 import io.vertx.core.buffer.Buffer;
-import me.doubledutch.lazyjson.LazyObject;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.profile.GCProfiler;
@@ -14,8 +13,6 @@ import com.suko.zeroparse.JsonParser;
 import com.suko.zeroparse.JsonValue;
 import com.suko.zeroparse.JsonObject;
 import com.suko.zeroparse.JsonParseContext;
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
 
 import java.util.concurrent.TimeUnit;
 
@@ -33,42 +30,34 @@ import java.util.concurrent.TimeUnit;
 public class MemoryBenchmark {
     
     private Buffer testBuffer;
-    private String testString;
-    private byte[] testBytes;
     private JsonParser parser;
     
     // Small message (typical crypto order book update)
     private Buffer smallBuffer;
-    private String smallString;
-    private byte[] smallBytes;
     
     // Large message (deep nesting, many fields)
     private Buffer largeBuffer;
-    private String largeString;
-    private byte[] largeBytes;
     
+    // Reusable pooled parse context for pooled benchmarks
+    private JsonParseContext pooledContext;
     @Setup
     public void setup() {
         // Small message: typical crypto order book snapshot
         String smallJson = "{\"action\":\"snapshot\",\"arg\":{\"instType\":\"USDT-FUTURES\",\"channel\":\"books5\",\"instId\":\"BTCUSDT\"},\"data\":[{\"asks\":[[\"27000.5\",\"8.760\"],[\"27001.0\",\"0.400\"]],\"bids\":[[\"27000.0\",\"2.710\"],[\"26999.5\",\"1.460\"]],\"checksum\":0,\"seq\":123,\"ts\":\"1695716059516\"}],\"ts\":1695716059516}";
         smallBuffer = Buffer.buffer(smallJson);
-        smallString = smallJson;
-        smallBytes = smallJson.getBytes();
         
         // Medium message
         String mediumJson = "{\"action\":\"snapshot\",\"arg\":{\"instType\":\"USDT-FUTURES\",\"channel\":\"books5\",\"instId\":\"BTCUSDT\"},\"data\":[{\"asks\":[[\"27000.5\",\"8.760\"],[\"27001.0\",\"0.400\"]],\"bids\":[[\"27000.0\",\"2.710\"],[\"26999.5\",\"1.460\"]],\"checksum\":0,\"seq\":123,\"ts\":\"1695716059516\"}],\"ts\":1695716059516}";
         testBuffer = Buffer.buffer(mediumJson);
-        testString = mediumJson;
-        testBytes = mediumJson.getBytes();
         
         // Large message: deeply nested structure
         String largeJson = buildLargeJson();
         largeBuffer = Buffer.buffer(largeJson);
-        largeString = largeJson;
-        largeBytes = largeJson.getBytes();
         
         // Create parser ONCE
         parser = new JsonParser();
+        // Create a reusable context that shares the same parser (single-threaded JMH)
+        pooledContext = new JsonParseContext(parser, new com.suko.zeroparse.ViewPools());
     }
     
     private String buildLargeJson() {
@@ -84,128 +73,56 @@ public class MemoryBenchmark {
         sb.append("]}}}}}}");
         return sb.toString();
     }
-
-    // ===== Parse Only (no field access) =====
+    
+    // ===== POOLED PARSING BENCHMARKS (Garbage-Free with JsonParseContext) =====
     
     @Benchmark
-    public JsonValue zeroparseSmallParseOnly(Blackhole bh) {
-        return parser.parse(smallBuffer);
+    public JsonValue zeroparseSmallPooled(Blackhole bh) {
+        pooledContext.close();
+        return pooledContext.parse(smallBuffer);
     }
     
     @Benchmark
-    public JSONObject fastjson2SmallParseOnly(Blackhole bh) {
-        return JSON.parseObject(smallBytes);
+    public JsonValue zeroparseMediumPooled(Blackhole bh) {
+        pooledContext.close();
+        return pooledContext.parse(testBuffer);
     }
     
     @Benchmark
-    public LazyObject lazyjsonSmallParseOnly(Blackhole bh) {
-        return new LazyObject(smallString);
+    public JsonValue zeroparseLargePooled(Blackhole bh) {
+        pooledContext.close();
+        return pooledContext.parse(largeBuffer);
     }
     
     @Benchmark
-    public JsonValue zeroparseMediumParseOnly(Blackhole bh) {
-        return parser.parse(testBuffer);
-    }
-    
-    @Benchmark
-    public JSONObject fastjson2MediumParseOnly(Blackhole bh) {
-        return JSON.parseObject(testBytes);
-    }
-    
-    @Benchmark
-    public LazyObject lazyjsonMediumParseOnly(Blackhole bh) {
-        return new LazyObject(testString);
-    }
-    
-    @Benchmark
-    public JsonValue zeroparseLargeParseOnly(Blackhole bh) {
-        return parser.parse(largeBuffer);
-    }
-    
-    @Benchmark
-    public JSONObject fastjson2LargeParseOnly(Blackhole bh) {
-        return JSON.parseObject(largeBytes);
-    }
-    
-    @Benchmark
-    public LazyObject lazyjsonLargeParseOnly(Blackhole bh) {
-        return new LazyObject(largeString);
-    }
-    
-    // ===== Parse + Field Access (realistic usage) =====
-    
-    @Benchmark
-    public void zeroparseSmallParseAndAccess(Blackhole bh) {
-        JsonValue root = parser.parse(smallBuffer);
+    public void zeroparseSmallPooledParseAndAccess(Blackhole bh) {
+        pooledContext.close();
+        JsonValue root = pooledContext.parse(smallBuffer);
         if (root.isObject()) {
             JsonObject obj = root.asObject();
             bh.consume(obj.get("action"));
-            JsonValue arg = obj.get("arg");
-            if (arg != null && arg.isObject()) {
-                JsonObject argObj = arg.asObject();
-                bh.consume(argObj.get("instType"));
-                bh.consume(argObj.get("channel"));
-                bh.consume(argObj.get("instId"));
-            }
+            bh.consume(obj.get("data"));
         }
     }
     
     @Benchmark
-    public void fastjson2SmallParseAndAccess(Blackhole bh) {
-        JSONObject obj = JSON.parseObject(smallBytes);
-        bh.consume(obj.get("action"));
-        JSONObject arg = obj.getJSONObject("arg");
-        if (arg != null) {
-            bh.consume(arg.get("instType"));
-            bh.consume(arg.get("channel"));
-            bh.consume(arg.get("instId"));
-        }
-    }
-    
-    @Benchmark
-    public void lazyjsonSmallParseAndAccess(Blackhole bh) {
-        LazyObject obj = new LazyObject(smallString);
-        bh.consume(obj.getString("action"));
-        LazyObject arg = obj.getJSONObject("arg");
-        if (arg != null) {
-            bh.consume(arg.getString("instType"));
-            bh.consume(arg.getString("channel"));
-            bh.consume(arg.getString("instId"));
-        }
-    }
-    
-    @Benchmark
-    public void zeroparseMediumParseAndAccess(Blackhole bh) {
-        JsonValue root = parser.parse(testBuffer);
+    public void zeroparseMediumPooledParseAndAccess(Blackhole bh) {
+        pooledContext.close();
+        JsonValue root = pooledContext.parse(testBuffer);
         if (root.isObject()) {
             JsonObject obj = root.asObject();
             bh.consume(obj.get("action"));
-            bh.consume(obj.get("ts"));
+            bh.consume(obj.get("data"));
         }
     }
     
     @Benchmark
-    public void fastjson2MediumParseAndAccess(Blackhole bh) {
-        JSONObject obj = JSON.parseObject(testBytes);
-        bh.consume(obj.get("action"));
-        bh.consume(obj.get("ts"));
-    }
-    
-    @Benchmark
-    public void lazyjsonMediumParseAndAccess(Blackhole bh) {
-        LazyObject obj = new LazyObject(testString);
-        bh.consume(obj.getString("action"));
-        bh.consume(obj.getLong("ts"));
-    }
-    
-    // ===== Repeated Field Access (test field cache) =====
-    
-    @Benchmark
-    public void zeroparseRepeatedFieldAccess(Blackhole bh) {
-        JsonValue root = parser.parse(testBuffer);
+    public void zeroparsePooledRepeatedFieldAccess(Blackhole bh) {
+        pooledContext.close();
+        JsonValue root = pooledContext.parse(testBuffer);
         if (root.isObject()) {
             JsonObject obj = root.asObject();
-            // Access same fields multiple times (tests cache effectiveness)
+            // Access same fields multiple times
             for (int i = 0; i < 10; i++) {
                 bh.consume(obj.get("action"));
                 bh.consume(obj.get("ts"));
@@ -213,81 +130,51 @@ public class MemoryBenchmark {
         }
     }
     
-    @Benchmark
-    public void fastjson2RepeatedFieldAccess(Blackhole bh) {
-        JSONObject obj = JSON.parseObject(testBytes);
-        for (int i = 0; i < 10; i++) {
-            bh.consume(obj.get("action"));
-            bh.consume(obj.get("ts"));
-        }
-    }
+    // ===== NUMBER CACHING BENCHMARKS =====
     
     @Benchmark
-    public void lazyjsonRepeatedFieldAccess(Blackhole bh) {
-        LazyObject obj = new LazyObject(testString);
-        for (int i = 0; i < 10; i++) {
-            bh.consume(obj.getString("action"));
-            bh.consume(obj.getLong("ts"));
-        }
-    }
-    
-    // ===== POOLED PARSING BENCHMARKS (Garbage-Free with JsonParseContext) =====
-    
-    @Benchmark
-    public JsonValue zeroparseSmallPooled(Blackhole bh) {
-        try (JsonParseContext ctx = JsonParseContext.get()) {
-            return ctx.parse(smallBuffer);
-        }
-    }
-    
-    @Benchmark
-    public JsonValue zeroparseMediumPooled(Blackhole bh) {
-        try (JsonParseContext ctx = JsonParseContext.get()) {
-            return ctx.parse(testBuffer);
-        }
-    }
-    
-    @Benchmark
-    public JsonValue zeroparseLargePooled(Blackhole bh) {
-        try (JsonParseContext ctx = JsonParseContext.get()) {
-            return ctx.parse(largeBuffer);
-        }
-    }
-    
-    @Benchmark
-    public void zeroparseSmallPooledParseAndAccess(Blackhole bh) {
-        try (JsonParseContext ctx = JsonParseContext.get()) {
-            JsonValue root = ctx.parse(smallBuffer);
-            if (root.isObject()) {
-                JsonObject obj = root.asObject();
-                bh.consume(obj.get("action"));
-                bh.consume(obj.get("data"));
+    public void zeroparsePooledNumberCachingRepeatedAccess(Blackhole bh) {
+        pooledContext.close();
+        JsonValue root = pooledContext.parse(testBuffer);
+        if (root.isObject()) {
+            JsonObject obj = root.asObject();
+            JsonValue data = obj.get("data");
+            if (data != null && data.isArray()) {
+                JsonValue firstItem = data.asArray().get(0);
+                if (firstItem != null && firstItem.isObject()) {
+                    JsonObject item = firstItem.asObject();
+                    JsonValue ts = item.get("ts");
+                    if (ts != null && ts.isString()) {
+                        // Parse the same number 10 times (tests caching + pooling)
+                        for (int i = 0; i < 10; i++) {
+                            bh.consume(ts.asString().parseLong());
+                        }
+                    }
+                }
             }
         }
     }
     
     @Benchmark
-    public void zeroparseMediumPooledParseAndAccess(Blackhole bh) {
-        try (JsonParseContext ctx = JsonParseContext.get()) {
-            JsonValue root = ctx.parse(testBuffer);
-            if (root.isObject()) {
-                JsonObject obj = root.asObject();
-                bh.consume(obj.get("action"));
-                bh.consume(obj.get("data"));
-            }
-        }
-    }
-    
-    @Benchmark
-    public void zeroparsePooledRepeatedFieldAccess(Blackhole bh) {
-        try (JsonParseContext ctx = JsonParseContext.get()) {
-            JsonValue root = ctx.parse(testBuffer);
-            if (root.isObject()) {
-                JsonObject obj = root.asObject();
-                // Access same fields multiple times
-                for (int i = 0; i < 10; i++) {
-                    bh.consume(obj.get("action"));
-                    bh.consume(obj.get("ts"));
+    public void zeroparsePooledQuotedNumberParsing(Blackhole bh) {
+        pooledContext.close();
+        JsonValue root = pooledContext.parse(smallBuffer);
+        if (root.isObject()) {
+            JsonObject obj = root.asObject();
+            JsonValue data = obj.get("data");
+            if (data != null && data.isArray()) {
+                JsonValue firstItem = data.asArray().get(0);
+                if (firstItem != null && firstItem.isObject()) {
+                    JsonObject item = firstItem.asObject();
+                    JsonValue asks = item.get("asks");
+                    if (asks != null && asks.isArray()) {
+                        JsonValue firstAsk = asks.asArray().get(0);
+                        if (firstAsk != null && firstAsk.isArray()) {
+                            // Parse quoted price and qty (zero-copy + pooled)
+                            bh.consume(firstAsk.asArray().get(0).asString().parseDouble());
+                            bh.consume(firstAsk.asArray().get(1).asString().parseDouble());
+                        }
+                    }
                 }
             }
         }
