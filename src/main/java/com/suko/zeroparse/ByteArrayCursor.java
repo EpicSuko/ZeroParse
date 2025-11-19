@@ -14,6 +14,8 @@ public final class ByteArrayCursor implements InputCursor {
     private byte[] data;
     private int offset;
     private int length;
+    // Optional parse context for pooled slice creation
+    private JsonParseContext context;
     
     /**
      * Create a new ByteArrayCursor for the entire array.
@@ -38,7 +40,7 @@ public final class ByteArrayCursor implements InputCursor {
     /**
      * Default constructor for object pooling.
      */
-    ByteArrayCursor() {
+    public ByteArrayCursor() {
         this.data = null;
         this.offset = 0;
         this.length = 0;
@@ -95,8 +97,8 @@ public final class ByteArrayCursor implements InputCursor {
             throw new IndexOutOfBoundsException("Invalid slice: start=" + start + ", length=" + sliceLength + ", cursorLength=" + length);
         }
         
-        // Use pooled slice when in a parse context, otherwise allocate
-        JsonParseContext ctx = JsonParseContext.getActiveContext();
+        // Use pooled slice when a context is attached, otherwise allocate
+        JsonParseContext ctx = this.context;
         if (ctx != null) {
             return ctx.borrowSlice(data, offset + start, sliceLength);
         }
@@ -130,5 +132,9 @@ public final class ByteArrayCursor implements InputCursor {
      */
     public int getOffset() {
         return offset;
+    }
+
+    void setContext(JsonParseContext context) {
+        this.context = context;
     }
 }

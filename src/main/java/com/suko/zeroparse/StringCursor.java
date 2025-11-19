@@ -12,6 +12,8 @@ public final class StringCursor implements InputCursor {
     
     private final String string;
     private final byte[] utf8Bytes;
+    // Optional parse context for pooled slice creation
+    private JsonParseContext context;
     
     /**
      * Create a new StringCursor.
@@ -59,8 +61,8 @@ public final class StringCursor implements InputCursor {
         String substring = string.substring(start, start + length);
         byte[] bytes = substring.getBytes(StandardCharsets.UTF_8);
         
-        // Use pooled slice when in a parse context, otherwise allocate
-        JsonParseContext ctx = JsonParseContext.getActiveContext();
+        // Use pooled slice when a context is attached, otherwise allocate
+        JsonParseContext ctx = this.context;
         if (ctx != null) {
             return ctx.borrowSlice(bytes, 0, bytes.length);
         }
@@ -97,5 +99,9 @@ public final class StringCursor implements InputCursor {
      */
     public byte[] getUtf8Bytes() {
         return utf8Bytes;
+    }
+
+    void setContext(JsonParseContext context) {
+        this.context = context;
     }
 }

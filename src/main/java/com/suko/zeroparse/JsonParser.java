@@ -6,24 +6,25 @@ import com.suko.zeroparse.stack.AstStore;
 
 /**
  * A JSON parser that provides zero-copy parsing capabilities.
- * 
+ *
  * <p>This parser provides efficient parsing of JSON from various input sources,
  * using lazy evaluation and AST-backed views for minimal allocations.</p>
- * 
- * <p>Uses ThreadLocal pooling for StackTokenizer reuse to minimize allocations
- * in high-throughput scenarios.</p>
  */
 public final class JsonParser {
     
-    // ThreadLocal pool for StackTokenizer reuse (eliminates allocation overhead)
-    private static final ThreadLocal<StackTokenizer> TOKENIZER_POOL = 
-        ThreadLocal.withInitial(StackTokenizer::new);
+    // Single tokenizer instance reused by this parser (no ThreadLocal)
+    private final StackTokenizer tokenizer = new StackTokenizer();
+    private final CursorPools cursorPools;
     
     /**
      * Create a new JsonParser.
      */
     public JsonParser() {
-        // Simple constructor - no configuration needed
+        this(new CursorPools());
+    }
+
+    JsonParser(CursorPools cursorPools) {
+        this.cursorPools = cursorPools;
     }
     
     /**
@@ -39,11 +40,26 @@ public final class JsonParser {
             throw new IllegalArgumentException("Buffer cannot be null");
         }
         // Use pooled cursor to avoid buffer.getBytes() allocation
-        BufferCursor cursor = CursorPools.borrowBufferCursor(buffer);
+        BufferCursor cursor = cursorPools.borrowBufferCursor(buffer);
         try {
             return parse(cursor);
         } finally {
-            CursorPools.returnBufferCursor(cursor);
+            cursorPools.returnBufferCursor(cursor);
+        }
+    }
+
+    // Package-private helper used by JsonParseContext for pooled parsing
+    JsonValue parse(Buffer buffer, JsonParseContext context) {
+        if (buffer == null) {
+            throw new IllegalArgumentException("Buffer cannot be null");
+        }
+        BufferCursor cursor = cursorPools.borrowBufferCursor(buffer);
+        try {
+            cursor.setContext(context);
+            return parse(cursor, context);
+        } finally {
+            cursor.setContext(null);
+            cursorPools.returnBufferCursor(cursor);
         }
     }
     
@@ -65,11 +81,11 @@ public final class JsonParser {
             throw new IllegalArgumentException("Invalid offset/length");
         }
         // Use pooled cursor for reuse
-        ByteArrayCursor cursor = CursorPools.borrowByteArrayCursor(data, offset, length);
+        ByteArrayCursor cursor = cursorPools.borrowByteArrayCursor(data, offset, length);
         try {
             return parse(cursor);
         } finally {
-            CursorPools.returnByteArrayCursor(cursor);
+            cursorPools.returnByteArrayCursor(cursor);
         }
     }
     
@@ -85,6 +101,34 @@ public final class JsonParser {
             throw new IllegalArgumentException("JSON string cannot be null");
         }
         return parse(new StringCursor(json));
+    }
+
+    // Package-private helper used by JsonParseContext for pooled parsing
+    JsonValue parse(String json, JsonParseContext context) {
+        if (json == null) {
+            throw new IllegalArgumentException("JSON string cannot be null");
+        }
+        StringCursor cursor = new StringCursor(json);
+        cursor.setContext(context);
+        return parse(cursor, context);
+    }
+
+    // Package-private helper used by JsonParseContext for pooled parsing
+    JsonValue parse(byte[] data, int offset, int length, JsonParseContext context) {
+        if (data == null) {
+            throw new IllegalArgumentException("Data cannot be null");
+        }
+        if (offset < 0 || length < 0 || offset + length > data.length) {
+            throw new IllegalArgumentException("Invalid offset/length");
+        }
+        ByteArrayCursor cursor = cursorPools.borrowByteArrayCursor(data, offset, length);
+        try {
+            cursor.setContext(context);
+            return parse(cursor, context);
+        } finally {
+            cursor.setContext(null);
+            cursorPools.returnByteArrayCursor(cursor);
+        }
     }
     
     /**
@@ -103,56 +147,58 @@ public final class JsonParser {
             throw new JsonParseException("Empty JSON input", 0);
         }
         
-        return parseWithStack(cursor);
+        return parseWithStack(cursor, null);
     }
     
     /**
      * Parse using stack-based tokenizer.
      * Uses pooled views if JsonParseContext is active, otherwise allocates new objects.
      */
-    private JsonValue parseWithStack(InputCursor cursor) {
+    JsonValue parse(InputCursor cursor, JsonParseContext context) {
+        if (cursor == null) {
+            throw new IllegalArgumentException("Cursor cannot be null");
+        }
+        if (cursor.isEmpty()) {
+            throw new JsonParseException("Empty JSON input", 0);
+        }
+        return parseWithStack(cursor, context);
+    }
+    
+    /**
+     * Parse using stack-based tokenizer.
+     * Uses pooled views when a JsonParseContext is provided, otherwise allocates new objects.
+     */
+    private JsonValue parseWithStack(InputCursor cursor, JsonParseContext context) {
         try {
-            // Reuse tokenizer from ThreadLocal pool
-            StackTokenizer tokenizer = TOKENIZER_POOL.get();
             AstStore astStore = tokenizer.tokenize(cursor);
             
             int rootIndex = astStore.getRoot();
             byte rootType = astStore.getType(rootIndex);
             
-            // Check if we're in a pooled context (simple flag check)
-            JsonParseContext context = JsonParseContext.getActiveContext();
             boolean usePooling = (context != null);
             
             switch (rootType) {
                 case AstStore.TYPE_OBJECT:
                     if (usePooling) {
-                        JsonObject obj = ViewPools.borrowObject();
-                        obj.reset(astStore, rootIndex, cursor, context);
-                        return obj;
+                        return context.borrowView(rootType, astStore, rootIndex, cursor);
                     }
                     return new JsonObject(astStore, rootIndex, cursor);
                     
                 case AstStore.TYPE_ARRAY:
                     if (usePooling) {
-                        JsonArray arr = ViewPools.borrowArray();
-                        arr.reset(astStore, rootIndex, cursor, context);
-                        return arr;
+                        return context.borrowView(rootType, astStore, rootIndex, cursor);
                     }
                     return new JsonArray(astStore, rootIndex, cursor);
                     
                 case AstStore.TYPE_STRING:
                     if (usePooling) {
-                        JsonStringView str = ViewPools.borrowString();
-                        str.reset(astStore, rootIndex, cursor);
-                        return str;
+                        return context.borrowView(rootType, astStore, rootIndex, cursor);
                     }
                     return new JsonStringView(astStore, rootIndex, cursor);
                     
                 case AstStore.TYPE_NUMBER:
                     if (usePooling) {
-                        JsonNumberView num = ViewPools.borrowNumber();
-                        num.reset(astStore, rootIndex, cursor);
-                        return num;
+                        return context.borrowView(rootType, astStore, rootIndex, cursor);
                     }
                     return new JsonNumberView(astStore, rootIndex, cursor);
                     
@@ -186,11 +232,26 @@ public final class JsonParser {
             throw new IllegalArgumentException("Buffer cannot be null");
         }
         // Use pooled cursor to avoid buffer.getBytes() allocation
-        BufferCursor cursor = CursorPools.borrowBufferCursor(buffer);
+        BufferCursor cursor = cursorPools.borrowBufferCursor(buffer);
         try {
-            return streamArray(cursor);
+            return streamArray(cursor, null);
         } finally {
-            CursorPools.returnBufferCursor(cursor);
+            cursorPools.returnBufferCursor(cursor);
+        }
+    }
+
+    // Package-private helper used by JsonParseContext for pooled streaming
+    JsonArrayCursor streamArray(Buffer buffer, JsonParseContext context) {
+        if (buffer == null) {
+            throw new IllegalArgumentException("Buffer cannot be null");
+        }
+        BufferCursor cursor = cursorPools.borrowBufferCursor(buffer);
+        try {
+            cursor.setContext(context);
+            return streamArray(cursor, context);
+        } finally {
+            cursor.setContext(null);
+            cursorPools.returnBufferCursor(cursor);
         }
     }
     
@@ -212,11 +273,29 @@ public final class JsonParser {
             throw new IllegalArgumentException("Invalid offset/length");
         }
         // Use pooled cursor for reuse
-        ByteArrayCursor cursor = CursorPools.borrowByteArrayCursor(data, offset, length);
+        ByteArrayCursor cursor = cursorPools.borrowByteArrayCursor(data, offset, length);
         try {
-            return streamArray(cursor);
+            return streamArray(cursor, null);
         } finally {
-            CursorPools.returnByteArrayCursor(cursor);
+            cursorPools.returnByteArrayCursor(cursor);
+        }
+    }
+
+    // Package-private helper used by JsonParseContext for pooled streaming
+    JsonArrayCursor streamArray(byte[] data, int offset, int length, JsonParseContext context) {
+        if (data == null) {
+            throw new IllegalArgumentException("Data cannot be null");
+        }
+        if (offset < 0 || length < 0 || offset + length > data.length) {
+            throw new IllegalArgumentException("Invalid offset/length");
+        }
+        ByteArrayCursor cursor = cursorPools.borrowByteArrayCursor(data, offset, length);
+        try {
+            cursor.setContext(context);
+            return streamArray(cursor, context);
+        } finally {
+            cursor.setContext(null);
+            cursorPools.returnByteArrayCursor(cursor);
         }
     }
     
@@ -231,7 +310,17 @@ public final class JsonParser {
         if (json == null) {
             throw new IllegalArgumentException("JSON string cannot be null");
         }
-        return streamArray(new StringCursor(json));
+        return streamArray(new StringCursor(json), null);
+    }
+    
+    // Package-private helper used by JsonParseContext for pooled streaming
+    JsonArrayCursor streamArray(String json, JsonParseContext context) {
+        if (json == null) {
+            throw new IllegalArgumentException("JSON string cannot be null");
+        }
+        StringCursor cursor = new StringCursor(json);
+        cursor.setContext(context);
+        return streamArray(cursor, context);
     }
     
     /**
@@ -242,6 +331,10 @@ public final class JsonParser {
      * @throws JsonParseException if the JSON is invalid or not an array
      */
     public JsonArrayCursor streamArray(InputCursor cursor) {
+        return streamArray(cursor, null);
+    }
+    
+    JsonArrayCursor streamArray(InputCursor cursor, JsonParseContext context) {
         if (cursor == null) {
             throw new IllegalArgumentException("Cursor cannot be null");
         }
@@ -250,16 +343,14 @@ public final class JsonParser {
             throw new JsonParseException("Empty JSON input", 0);
         }
         
-        return streamArrayWithStack(cursor);
+        return streamArrayWithStack(cursor, context);
     }
     
     /**
      * Stream array using stack-based tokenizer.
      */
-    private JsonArrayCursor streamArrayWithStack(InputCursor cursor) {
+    private JsonArrayCursor streamArrayWithStack(InputCursor cursor, JsonParseContext context) {
         try {
-            // Reuse tokenizer from ThreadLocal pool
-            StackTokenizer tokenizer = TOKENIZER_POOL.get();
             AstStore astStore = tokenizer.tokenize(cursor);
             
             int rootIndex = astStore.getRoot();
@@ -269,13 +360,10 @@ public final class JsonParser {
                 throw new JsonParseException("Expected JSON array, got: " + AstStore.toJsonType(rootType), 0);
             }
             
-            // Check if we're in a pooled context (simple flag check)
-            JsonParseContext context = JsonParseContext.getActiveContext();
             JsonArray array;
-            
             if (context != null) {
-                array = ViewPools.borrowArray();
-                array.reset(astStore, rootIndex, cursor, context);
+                JsonValue view = context.borrowView(AstStore.TYPE_ARRAY, astStore, rootIndex, cursor);
+                array = view.asArray();
             } else {
                 array = new JsonArray(astStore, rootIndex, cursor);
             }

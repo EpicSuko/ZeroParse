@@ -18,6 +18,8 @@ public final class BufferCursor implements InputCursor {
     private byte[] cachedBytes;
     private int offset;
     private int length;
+    // Optional parse context for pooled slice creation
+    private JsonParseContext context;
     
     /**
      * Create a new BufferCursor.
@@ -31,7 +33,7 @@ public final class BufferCursor implements InputCursor {
     /**
      * Default constructor for object pooling.
      */
-    BufferCursor() {
+    public BufferCursor() {
         this.buffer = null;
         this.cachedBytes = null;
         this.offset = 0;
@@ -111,8 +113,8 @@ public final class BufferCursor implements InputCursor {
             throw new IndexOutOfBoundsException("Invalid slice: start=" + start + ", length=" + length + ", bufferLength=" + this.length);
         }
         
-        // Use pooled slice when in a parse context, otherwise allocate
-        JsonParseContext ctx = JsonParseContext.getActiveContext();
+        // Use pooled slice when a context is attached, otherwise allocate
+        JsonParseContext ctx = this.context;
         if (ctx != null) {
             return ctx.borrowSlice(cachedBytes, offset + start, length);
         }
@@ -147,5 +149,9 @@ public final class BufferCursor implements InputCursor {
      */
     public byte[] getCachedBytes() {
         return cachedBytes;
+    }
+
+    void setContext(JsonParseContext context) {
+        this.context = context;
     }
 }

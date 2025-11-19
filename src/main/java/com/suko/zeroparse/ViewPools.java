@@ -5,9 +5,10 @@ import com.suko.pool.ObjectPool;
 
 /**
  * Manages object pools for JSON view objects to achieve garbage-free parsing.
- * 
- * <p>This class uses FastPool to reuse view objects across parse operations,
- * dramatically reducing GC pressure and allocation rates.</p>
+ *
+ * <p>This class is intentionally <strong>instance-based</strong> so each
+ * environment (e.g. Vert.x event-loop, request scope, or benchmark) can have
+ * its own pools without any static or ThreadLocal shared state.</p>
  */
 public final class ViewPools {
     
@@ -27,60 +28,81 @@ public final class ViewPools {
     private static final int SLICE_STRIPES = 4;
     private static final int SLICE_STRIPE_SIZE = 256;  // Slices are very common
     
-    // Striped pools for each view type (public for direct access from JsonParseContext)
-    public static final ObjectPool<JsonObject> OBJECT_POOL;
-    public static final ObjectPool<JsonArray> ARRAY_POOL;
-    public static final ObjectPool<JsonStringView> STRING_POOL;
-    public static final ObjectPool<JsonNumberView> NUMBER_POOL;
-    public static final ObjectPool<Utf8Slice> SLICE_POOL;
+    // Pools for each view type (scoped to this ViewPools instance)
+    private final ObjectPool<JsonObject> objectPool;
+    private final ObjectPool<JsonArray> arrayPool;
+    private final ObjectPool<JsonStringView> stringPool;
+    private final ObjectPool<JsonNumberView> numberPool;
+    private final ObjectPool<Utf8Slice> slicePool;
     
-    static {
-
-        OBJECT_POOL = new ArrayObjectPool<>(OBJECT_STRIPES * OBJECT_STRIPE_SIZE, JsonObject.class);
-        ARRAY_POOL = new ArrayObjectPool<>(ARRAY_STRIPES * ARRAY_STRIPE_SIZE, JsonArray.class);
-        STRING_POOL = new ArrayObjectPool<>(STRING_STRIPES * STRING_STRIPE_SIZE, JsonStringView.class);
-        NUMBER_POOL = new ArrayObjectPool<>(NUMBER_STRIPES * NUMBER_STRIPE_SIZE, JsonNumberView.class);
-        SLICE_POOL = new ArrayObjectPool<>(SLICE_STRIPES * SLICE_STRIPE_SIZE, Utf8Slice.class);
-    }
-    
-    private ViewPools() {
-        // Prevent instantiation
+    /**
+     * Create a new set of view pools.
+     * Typically you create one {@code ViewPools} per single-threaded environment
+     * (e.g. Vert.x event loop) and share it with {@link JsonParser} /
+     * {@link JsonParseContext}.
+     */
+    public ViewPools() {
+        this.objectPool = new ArrayObjectPool<>(OBJECT_STRIPES * OBJECT_STRIPE_SIZE, JsonObject.class);
+        this.arrayPool = new ArrayObjectPool<>(ARRAY_STRIPES * ARRAY_STRIPE_SIZE, JsonArray.class);
+        this.stringPool = new ArrayObjectPool<>(STRING_STRIPES * STRING_STRIPE_SIZE, JsonStringView.class);
+        this.numberPool = new ArrayObjectPool<>(NUMBER_STRIPES * NUMBER_STRIPE_SIZE, JsonNumberView.class);
+        this.slicePool = new ArrayObjectPool<>(SLICE_STRIPES * SLICE_STRIPE_SIZE, Utf8Slice.class);
     }
     
     /**
      * Borrow a JsonObject from the pool.
      */
-    public static JsonObject borrowObject() {
-        return OBJECT_POOL.get();
+    public JsonObject borrowObject() {
+        return objectPool.get();
+    }
+    public void returnObject(JsonObject obj) {
+        if (obj != null) {
+            objectPool.release(obj);
+        }
     }
     
     /**
      * Borrow a JsonArray from the pool.
      */
-    public static JsonArray borrowArray() {
-        return ARRAY_POOL.get();
+    public JsonArray borrowArray() {
+        return arrayPool.get();
+    }
+    public void returnArray(JsonArray arr) {
+        if (arr != null) {
+            arrayPool.release(arr);
+        }
     }
     
     /**
      * Borrow a JsonStringView from the pool.
      */
-    public static JsonStringView borrowString() {
-        return STRING_POOL.get();
+    public JsonStringView borrowString() {
+        return stringPool.get();
+    }
+    public void returnString(JsonStringView str) {
+        if (str != null) {
+            stringPool.release(str);
+        }
     }
     
     /**
      * Borrow a JsonNumberView from the pool.
      */
-    public static JsonNumberView borrowNumber() {
-        return NUMBER_POOL.get();
+    public JsonNumberView borrowNumber() {
+        return numberPool.get();
+    }
+    public void returnNumber(JsonNumberView num) {
+        if (num != null) {
+            numberPool.release(num);
+        }
     }
     
     /**
      * Borrow a Utf8Slice from the pool.
      * The slice is returned uninitialized - caller must call reset().
      */
-    public static Utf8Slice borrowSlice() {
-        return SLICE_POOL.get();
+    public Utf8Slice borrowSlice() {
+        return slicePool.get();
     }
     
     /**
@@ -91,8 +113,8 @@ public final class ViewPools {
      * @param length the length of the slice
      * @return a pooled and initialized Utf8Slice
      */
-    public static Utf8Slice borrowSlice(byte[] source, int offset, int length) {
-        Utf8Slice slice = SLICE_POOL.get();
+    public Utf8Slice borrowSlice(byte[] source, int offset, int length) {
+        Utf8Slice slice = slicePool.get();
         slice.reset(source, offset, length);
         return slice;
     }
@@ -100,9 +122,9 @@ public final class ViewPools {
     /**
      * Return a Utf8Slice back to the pool.
      */
-    public static void returnSlice(Utf8Slice slice) {
+    public void returnSlice(Utf8Slice slice) {
         if (slice != null) {
-            SLICE_POOL.release(slice);
+            slicePool.release(slice);
         }
     }
     
@@ -110,19 +132,19 @@ public final class ViewPools {
      * Return a view object back to the pool.
      * Automatically routes to the correct pool based on type.
      */
-    public static void returnView(JsonValue view) {
+    public void returnView(JsonValue view) {
         if (view == null) {
             return;
         }
         
         if (view instanceof JsonObject) {
-            OBJECT_POOL.release((JsonObject) view);
+            objectPool.release((JsonObject) view);
         } else if (view instanceof JsonArray) {
-            ARRAY_POOL.release((JsonArray) view);
+            arrayPool.release((JsonArray) view);
         } else if (view instanceof JsonStringView) {
-            STRING_POOL.release((JsonStringView) view);
+            stringPool.release((JsonStringView) view);
         } else if (view instanceof JsonNumberView) {
-            NUMBER_POOL.release((JsonNumberView) view);
+            numberPool.release((JsonNumberView) view);
         }
         // Singletons (JsonBoolean, JsonNull) don't need to be pooled
     }
@@ -131,7 +153,7 @@ public final class ViewPools {
      * Return all views recursively (including nested objects/arrays).
      * Use this for manual cleanup if not using JsonParseContext.
      */
-    public static void returnAll(JsonValue view) {
+    public void returnAll(JsonValue view) {
         if (view == null) {
             return;
         }
@@ -142,18 +164,18 @@ public final class ViewPools {
             for (java.util.Map.Entry<Utf8Slice, JsonValue> entry : obj) {
                 returnAll(entry.getValue());
             }
-            OBJECT_POOL.release(obj);
+            objectPool.release(obj);
         } else if (view instanceof JsonArray) {
             JsonArray arr = (JsonArray) view;
             // Return all element values first
             for (JsonValue element : arr) {
                 returnAll(element);
             }
-            ARRAY_POOL.release(arr);
+            arrayPool.release(arr);
         } else if (view instanceof JsonStringView) {
-            STRING_POOL.release((JsonStringView) view);
+            stringPool.release((JsonStringView) view);
         } else if (view instanceof JsonNumberView) {
-            NUMBER_POOL.release((JsonNumberView) view);
+            numberPool.release((JsonNumberView) view);
         }
     }
 }

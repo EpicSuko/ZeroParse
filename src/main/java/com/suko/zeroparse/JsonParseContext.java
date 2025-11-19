@@ -20,7 +20,7 @@ import java.util.List;
  * 
  * <p><strong>Usage Example:</strong></p>
  * <pre>
- * try (JsonParseContext ctx = JsonParseContext.get()) {
+ * try (JsonParseContext ctx = new JsonParseContext()) {
  *     JsonObject order = ctx.parse(buffer).asObject();
  *     String symbol = order.get("symbol").asString().toString();
  *     double price = order.get("price").asNumber().asDouble();
@@ -39,15 +39,12 @@ import java.util.List;
  */
 public final class JsonParseContext implements AutoCloseable {
     
-    // ThreadLocal pool for context reuse (eliminates context allocation)
-    private static final ThreadLocal<JsonParseContext> CONTEXT_POOL = 
-        ThreadLocal.withInitial(JsonParseContext::new);
-    
     // Fixed-size array for small cases (most JSON has < 64 views total)
     private static final int FIXED_CAPACITY = 64;
     private static final int FIXED_SLICE_CAPACITY = 32;  // Slices are more common
     
     private final JsonParser parser;
+    private final ViewPools viewPools;
     
     // Unified tracking with type tags (simpler, faster close())
     private final JsonValue[] fixedViews;
@@ -78,48 +75,32 @@ public final class JsonParseContext implements AutoCloseable {
     // Reusable integer array for building field indices (avoids ArrayList allocation)
     private final int[] fieldIndexBuffer;
     
-    // Active flag (cheaper than ThreadLocal lookup)
+    // Active flag (used only for debugging/monitoring)
     private boolean active;
     
     /**
-     * Get a pooled context from ThreadLocal storage.
-     * This is the recommended way to obtain a context (zero allocation).
-     * 
-     * @return a reusable JsonParseContext
-     */
-    public static JsonParseContext get() {
-        JsonParseContext ctx = CONTEXT_POOL.get();
-        ctx.reset();
-        ctx.active = true;  // Mark as active
-        return ctx;
-    }
-    
-    /**
-     * Get the currently active context for this thread, if any.
-     * Used internally by JsonParser to detect pooled vs non-pooled parsing.
-     * 
-     * @return the active context, or null if no context is active
-     */
-    static JsonParseContext getActiveContext() {
-        JsonParseContext ctx = CONTEXT_POOL.get();
-        return ctx.active ? ctx : null;
-    }
-    
-    /**
-     * Create a new parse context (for manual management).
-     * Prefer using {@link #get()} which reuses contexts from ThreadLocal pool.
+     * Create a new parse context with default parser and view pools.
+     * This is the simplest entry point for application code:
+     *
+     * <pre>
+     * try (JsonParseContext ctx = new JsonParseContext()) {
+     *     JsonObject obj = ctx.parse(buffer).asObject();
+     *     // ...
+     * }
+     * </pre>
      */
     public JsonParseContext() {
-        this(new JsonParser());
+        this(new JsonParser(), new ViewPools());
     }
     
     /**
-     * Create a new parse context with custom parser configuration.
+     * Create a new parse context with custom parser and view pools.
      * 
      * @param parser the JSON parser to use
      */
-    public JsonParseContext(JsonParser parser) {
+    public JsonParseContext(JsonParser parser, ViewPools viewPools) {
         this.parser = parser;
+        this.viewPools = viewPools;
         this.fixedViews = new JsonValue[FIXED_CAPACITY];
         this.fixedViewTypes = new byte[FIXED_CAPACITY];
         this.viewCount = 0;
@@ -145,11 +126,11 @@ public final class JsonParseContext implements AutoCloseable {
     }
     
     /**
-     * Reset this context for reuse (called by ThreadLocal pool).
+     * Reset this context for reuse.
      */
     private void reset() {
         this.viewCount = 0;
-        this.active = false;  // Will be set to true by get()
+        this.active = false;
         this.fixedSliceCount = 0;
         this.fieldNameArrayPoolIndex = 0;  // Reset array pool index
         this.fieldIndicesArrayPoolIndex = 0;  // Reset field indices pool index
@@ -176,7 +157,9 @@ public final class JsonParseContext implements AutoCloseable {
      * @throws JsonParseException if parsing fails
      */
     public JsonValue parse(Buffer buffer) {
-        JsonValue root = parser.parse(buffer);
+        reset();
+        this.active = true;
+        JsonValue root = parser.parse(buffer, this);
         trackView(root);
         setContextOnRoot(root);
         return root;
@@ -192,7 +175,9 @@ public final class JsonParseContext implements AutoCloseable {
      * @throws JsonParseException if parsing fails
      */
     public JsonValue parse(String json) {
-        JsonValue root = parser.parse(json);
+        reset();
+        this.active = true;
+        JsonValue root = parser.parse(json, this);
         trackView(root);
         setContextOnRoot(root);
         return root;
@@ -208,10 +193,40 @@ public final class JsonParseContext implements AutoCloseable {
      * @throws JsonParseException if parsing fails
      */
     public JsonValue parse(byte[] bytes) {
-        JsonValue root = parser.parse(bytes, 0, bytes.length);
+        reset();
+        this.active = true;
+        JsonValue root = parser.parse(bytes, 0, bytes.length, this);
         trackView(root);
         setContextOnRoot(root);
         return root;
+    }
+
+    /**
+     * Stream a JSON array from a Buffer using this context.
+     * All views created from the streamed array are pooled and returned on close().
+     */
+    public JsonArrayCursor streamArray(Buffer buffer) {
+        reset();
+        this.active = true;
+        return parser.streamArray(buffer, this);
+    }
+
+    /**
+     * Stream a JSON array from a String using this context.
+     */
+    public JsonArrayCursor streamArray(String json) {
+        reset();
+        this.active = true;
+        return parser.streamArray(json, this);
+    }
+
+    /**
+     * Stream a JSON array from a byte array using this context.
+     */
+    public JsonArrayCursor streamArray(byte[] bytes) {
+        reset();
+        this.active = true;
+        return parser.streamArray(bytes, 0, bytes.length, this);
     }
     
     /**
@@ -236,27 +251,27 @@ public final class JsonParseContext implements AutoCloseable {
         
         switch (type) {
             case com.suko.zeroparse.stack.AstStore.TYPE_OBJECT:
-                JsonObject obj = ViewPools.borrowObject();
+                JsonObject obj = viewPools.borrowObject();
                 obj.reset(ast, idx, cursor);
                 obj.context = this;  // Set context directly (avoids instanceof check in caller)
                 view = obj;
                 break;
                 
             case com.suko.zeroparse.stack.AstStore.TYPE_ARRAY:
-                JsonArray arr = ViewPools.borrowArray();
+                JsonArray arr = viewPools.borrowArray();
                 arr.reset(ast, idx, cursor);
                 arr.context = this;  // Set context directly (avoids instanceof check in caller)
                 view = arr;
                 break;
                 
             case com.suko.zeroparse.stack.AstStore.TYPE_STRING:
-                JsonStringView str = ViewPools.borrowString();
+                JsonStringView str = viewPools.borrowString();
                 str.reset(ast, idx, cursor);
                 view = str;
                 break;
                 
             case com.suko.zeroparse.stack.AstStore.TYPE_NUMBER:
-                JsonNumberView num = ViewPools.borrowNumber();
+                JsonNumberView num = viewPools.borrowNumber();
                 num.reset(ast, idx, cursor);
                 view = num;
                 break;
@@ -330,7 +345,7 @@ public final class JsonParseContext implements AutoCloseable {
      * This is used internally during parsing to create slices with zero allocation.
      */
     Utf8Slice borrowSlice(byte[] source, int offset, int length) {
-        Utf8Slice slice = ViewPools.borrowSlice(source, offset, length);
+        Utf8Slice slice = viewPools.borrowSlice(source, offset, length);
         trackSlice(slice);
         return slice;
     }
@@ -421,16 +436,16 @@ public final class JsonParseContext implements AutoCloseable {
                 
                 switch (type) {
                     case com.suko.zeroparse.stack.AstStore.TYPE_OBJECT:
-                        ViewPools.OBJECT_POOL.release((JsonObject) view);
+                        viewPools.returnObject((JsonObject) view);
                         break;
                     case com.suko.zeroparse.stack.AstStore.TYPE_ARRAY:
-                        ViewPools.ARRAY_POOL.release((JsonArray) view);
+                        viewPools.returnArray((JsonArray) view);
                         break;
                     case com.suko.zeroparse.stack.AstStore.TYPE_STRING:
-                        ViewPools.STRING_POOL.release((JsonStringView) view);
+                        viewPools.returnString((JsonStringView) view);
                         break;
                     case com.suko.zeroparse.stack.AstStore.TYPE_NUMBER:
-                        ViewPools.NUMBER_POOL.release((JsonNumberView) view);
+                        viewPools.returnNumber((JsonNumberView) view);
                         break;
                 }
             }
@@ -443,16 +458,16 @@ public final class JsonParseContext implements AutoCloseable {
                     
                     switch (type) {
                         case com.suko.zeroparse.stack.AstStore.TYPE_OBJECT:
-                            ViewPools.OBJECT_POOL.release((JsonObject) view);
+                            viewPools.returnObject((JsonObject) view);
                             break;
                         case com.suko.zeroparse.stack.AstStore.TYPE_ARRAY:
-                            ViewPools.ARRAY_POOL.release((JsonArray) view);
+                            viewPools.returnArray((JsonArray) view);
                             break;
                         case com.suko.zeroparse.stack.AstStore.TYPE_STRING:
-                            ViewPools.STRING_POOL.release((JsonStringView) view);
+                            viewPools.returnString((JsonStringView) view);
                             break;
                         case com.suko.zeroparse.stack.AstStore.TYPE_NUMBER:
-                            ViewPools.NUMBER_POOL.release((JsonNumberView) view);
+                            viewPools.returnNumber((JsonNumberView) view);
                             break;
                     }
                 }
@@ -463,14 +478,14 @@ public final class JsonParseContext implements AutoCloseable {
             // Return slices from fixed array
             if (fixedSliceCount > 0) {
                 for (int i = 0; i < fixedSliceCount; i++) {
-                    ViewPools.returnSlice(fixedSlices[i]);
+                    viewPools.returnSlice(fixedSlices[i]);
                 }
             }
             
             // Return slices from overflow list
             if (overflowSlices != null && !overflowSlices.isEmpty()) {
                 for (Utf8Slice slice : overflowSlices) {
-                    ViewPools.returnSlice(slice);
+                    viewPools.returnSlice(slice);
                 }
                 overflowSlices.clear();
             }
