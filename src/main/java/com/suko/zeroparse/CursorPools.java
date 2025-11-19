@@ -11,7 +11,7 @@ import com.suko.pool.ObjectPool;
  * within the same single-threaded environment (e.g. Vert.x event loop) without
  * relying on ThreadLocals.</p>
  */
-public final class CursorPools {
+public class CursorPools {
     
     private static final int BUFFER_POOL_SIZE = 32;
     private static final int BYTE_ARRAY_POOL_SIZE = 64;
@@ -25,6 +25,19 @@ public final class CursorPools {
         this.bufferPool = new ArrayObjectPool<>(BUFFER_POOL_SIZE, BufferCursor.class);
         this.byteArrayPool = new ArrayObjectPool<>(BYTE_ARRAY_POOL_SIZE, ByteArrayCursor.class);
         this.stringPool = new ArrayObjectPool<>(STRING_POOL_SIZE, StringCursor.class);
+    }
+    
+    /**
+     * Create cursor pools with custom sizes for HFT or other specialized use cases.
+     * 
+     * @param bufferPoolSize size of the buffer cursor pool
+     * @param byteArrayPoolSize size of the byte array cursor pool
+     * @param stringPoolSize size of the string cursor pool
+     */
+    protected CursorPools(int bufferPoolSize, int byteArrayPoolSize, int stringPoolSize) {
+        this.bufferPool = new ArrayObjectPool<>(bufferPoolSize, BufferCursor.class);
+        this.byteArrayPool = new ArrayObjectPool<>(byteArrayPoolSize, ByteArrayCursor.class);
+        this.stringPool = new ArrayObjectPool<>(stringPoolSize, StringCursor.class);
     }
     
     public BufferCursor borrowBufferCursor(Buffer buffer) {

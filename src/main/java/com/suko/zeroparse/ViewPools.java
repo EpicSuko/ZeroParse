@@ -10,7 +10,7 @@ import com.suko.pool.ObjectPool;
  * environment (e.g. Vert.x event-loop, request scope, or benchmark) can have
  * its own pools without any static or ThreadLocal shared state.</p>
  */
-public final class ViewPools {
+public class ViewPools {
     
     // Pool sizes configured for high-throughput crypto trading scenarios
     private static final int OBJECT_STRIPES = 4;
@@ -47,6 +47,24 @@ public final class ViewPools {
         this.stringPool = new ArrayObjectPool<>(STRING_STRIPES * STRING_STRIPE_SIZE, JsonStringView.class);
         this.numberPool = new ArrayObjectPool<>(NUMBER_STRIPES * NUMBER_STRIPE_SIZE, JsonNumberView.class);
         this.slicePool = new ArrayObjectPool<>(SLICE_STRIPES * SLICE_STRIPE_SIZE, Utf8Slice.class);
+    }
+    
+    /**
+     * Create view pools with custom sizes for HFT or other specialized use cases.
+     * 
+     * @param objectPoolSize size of the object pool
+     * @param arrayPoolSize size of the array pool
+     * @param stringPoolSize size of the string pool
+     * @param numberPoolSize size of the number pool
+     * @param slicePoolSize size of the slice pool
+     */
+    protected ViewPools(int objectPoolSize, int arrayPoolSize, int stringPoolSize, 
+                      int numberPoolSize, int slicePoolSize) {
+        this.objectPool = new ArrayObjectPool<>(objectPoolSize, JsonObject.class);
+        this.arrayPool = new ArrayObjectPool<>(arrayPoolSize, JsonArray.class);
+        this.stringPool = new ArrayObjectPool<>(stringPoolSize, JsonStringView.class);
+        this.numberPool = new ArrayObjectPool<>(numberPoolSize, JsonNumberView.class);
+        this.slicePool = new ArrayObjectPool<>(slicePoolSize, Utf8Slice.class);
     }
     
     /**

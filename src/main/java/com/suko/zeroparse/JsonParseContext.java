@@ -161,7 +161,7 @@ public final class JsonParseContext implements AutoCloseable {
     public JsonValue parse(Buffer buffer) {
         reset();
         JsonValue root = parser.parse(buffer, this);
-        trackView(root);
+        // trackView(root) removed - already tracked in borrowView
         setContextOnRoot(root);
         return root;
     }
@@ -178,7 +178,7 @@ public final class JsonParseContext implements AutoCloseable {
     public JsonValue parse(String json) {
         reset();
         JsonValue root = parser.parse(json, this);
-        trackView(root);
+        // trackView(root) removed - already tracked in borrowView
         setContextOnRoot(root);
         return root;
     }
@@ -195,7 +195,26 @@ public final class JsonParseContext implements AutoCloseable {
     public JsonValue parse(byte[] bytes) {
         reset();
         JsonValue root = parser.parse(bytes, 0, bytes.length, this);
-        trackView(root);
+        // trackView(root) removed - already tracked in borrowView
+        setContextOnRoot(root);
+        return root;
+    }
+    
+    /**
+     * Parse JSON from a byte array segment.
+     * All view objects created during parsing are tracked and will be
+     * automatically returned to the pool when this context is closed.
+     * 
+     * @param bytes the byte array containing JSON data
+     * @param offset start offset in the array
+     * @param length number of bytes to parse
+     * @return the root JSON value
+     * @throws JsonParseException if parsing fails
+     */
+    public JsonValue parse(byte[] bytes, int offset, int length) {
+        reset();
+        JsonValue root = parser.parse(bytes, offset, length, this);
+        // trackView(root) removed - already tracked in borrowView
         setContextOnRoot(root);
         return root;
     }
@@ -285,41 +304,19 @@ public final class JsonParseContext implements AutoCloseable {
                 throw new IllegalStateException("Unknown node type: " + type);
         }
         
-        // Track the borrowed view
-        addView(view);
+        // Track the borrowed view with known type
+        addViewWithType(view, type);
         return view;
     }
     
-    /**
-     * Track a view for automatic return on close.
-     * Package-private for use by JsonParser.
-     */
-    void trackView(JsonValue view) {
-        if (view != null && !(view instanceof JsonBoolean) && !(view instanceof JsonNull)) {
-            addView(view);
-        }
-    }
+    // Removed trackView - no longer needed since borrowView handles tracking with known type
+    
+    // Removed addView - no longer needed since all callers know the type
     
     /**
-     * Add a view to tracking (simplified with unified array + type tags).
-     * Type is determined once here, then used for fast dispatch in close().
+     * Add a view to tracking with known type - avoids instanceof checks.
      */
-    private void addView(JsonValue view) {
-        // Determine type once (using instanceof, but only once per view)
-        byte type;
-        if (view instanceof JsonObject) {
-            type = com.suko.zeroparse.stack.AstStore.TYPE_OBJECT;
-        } else if (view instanceof JsonArray) {
-            type = com.suko.zeroparse.stack.AstStore.TYPE_ARRAY;
-        } else if (view instanceof JsonStringView) {
-            type = com.suko.zeroparse.stack.AstStore.TYPE_STRING;
-        } else if (view instanceof JsonNumberView) {
-            type = com.suko.zeroparse.stack.AstStore.TYPE_NUMBER;
-        } else {
-            // Singletons (JsonBoolean, JsonNull) don't need tracking
-            return;
-        }
-        
+    private void addViewWithType(JsonValue view, byte type) {
         // Store in unified array with type tag
         if (viewCount < FIXED_CAPACITY) {
             fixedViews[viewCount] = view;
@@ -352,7 +349,7 @@ public final class JsonParseContext implements AutoCloseable {
     JsonStringView borrowStringView(Utf8Slice slice) {
         JsonStringView view = viewPools.borrowString();
         view.reset(slice);
-        addView(view);
+        addViewWithType(view, com.suko.zeroparse.stack.AstStore.TYPE_STRING);
         return view;
     }
 

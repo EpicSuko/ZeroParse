@@ -19,6 +19,20 @@ import java.math.BigInteger;
  */
 public final class NumberParser {
     
+    // Pre-computed powers of 10 for fast division
+    private static final double[] POWERS_OF_10 = {
+        1.0,          // 10^0
+        10.0,         // 10^1
+        100.0,        // 10^2
+        1000.0,       // 10^3
+        10000.0,      // 10^4
+        100000.0,     // 10^5
+        1000000.0,    // 10^6
+        10000000.0,   // 10^7
+        100000000.0,  // 10^8
+        1000000000.0  // 10^9
+    };
+    
     private NumberParser() {
         // Utility class
     }
@@ -128,6 +142,64 @@ public final class NumberParser {
     public static double parseDouble(byte[] bytes, int offset, int length) {
         if (length == 0) {
             throw new NumberFormatException("Empty string");
+        }
+        
+        // Ultra-fast path for common exchange price formats: "27000.50", "1.25", etc.
+        // This handles 90%+ of crypto exchange prices without any allocation
+        if (length >= 3 && length <= 12) {
+            int dotPos = -1;
+            boolean allDigits = true;
+            
+            // Quick scan for decimal point and validate all digits
+            for (int i = 0; i < length; i++) {
+                byte b = bytes[offset + i];
+                if (b == '.') {
+                    if (dotPos != -1) {
+                        allDigits = false; // Multiple dots
+                        break;
+                    }
+                    dotPos = i;
+                } else if (b < '0' || b > '9') {
+                    if (i == 0 && b == '-' && length > 1) {
+                        continue; // Allow leading minus
+                    }
+                    allDigits = false;
+                    break;
+                }
+            }
+            
+            // If simple decimal format, use optimized parsing
+            if (allDigits && dotPos > 0 && dotPos < length - 1) {
+                int start = offset;
+                boolean negative = false;
+                if (bytes[offset] == '-') {
+                    negative = true;
+                    start++;
+                    dotPos--; // Adjust for minus sign
+                }
+                
+                // Parse integer part
+                long wholePart = 0;
+                for (int i = start; i < start + dotPos; i++) {
+                    wholePart = wholePart * 10 + (bytes[i] - '0');
+                }
+                
+                // Parse fractional part
+                long fractPart = 0;
+                int fractDigits = 0;
+                for (int i = start + dotPos + 1; i < offset + length; i++) {
+                    fractPart = fractPart * 10 + (bytes[i] - '0');
+                    fractDigits++;
+                }
+                
+                // Combine using pre-computed divisor
+                double result = wholePart;
+                if (fractDigits > 0) {
+                    result += fractPart / POWERS_OF_10[fractDigits];
+                }
+                
+                return negative ? -result : result;
+            }
         }
         
         // Quick path: check if we have scientific notation
