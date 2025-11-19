@@ -40,7 +40,7 @@ public class JsonStringViewNumberParsingTest {
         // Test zero-allocation parsing in pooled context
         String json = "{\"price\":\"123.45\",\"volume\":\"67890\"}";
         
-        try (JsonParseContext ctx = JsonParseContext.get()) {
+        try (JsonParseContext ctx = new JsonParseContext()) {
             JsonObject obj = ctx.parse(json).asObject();
             
             double price = obj.get("price").asString().parseDouble();
@@ -137,7 +137,7 @@ public class JsonStringViewNumberParsingTest {
             "\"27000.6\",\"27000.7\",\"27000.8\",\"27000.9\",\"27001.0\"" +
             "]}";
         
-        try (JsonParseContext ctx = JsonParseContext.get()) {
+        try (JsonParseContext ctx = new JsonParseContext()) {
             JsonObject obj = ctx.parse(json).asObject();
             JsonArray updates = obj.get("updates").asArray();
             
