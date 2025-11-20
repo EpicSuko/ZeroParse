@@ -160,6 +160,65 @@ public final class JsonStringView implements JsonValue {
         return toString().equals(str);
     }
     
+    /**
+     * Compare this string view with a byte array without any allocations.
+     * 
+     * <p>This method performs a direct byte-by-byte comparison without creating
+     * any intermediate objects, making it ideal for high-throughput scenarios.</p>
+     * 
+     * <p>Note: This compares the raw JSON string bytes, not the decoded value.
+     * For escaped strings, this means comparing against the escaped form.</p>
+     * 
+     * @param bytes the byte array to compare against
+     * @param offset the starting offset in the byte array
+     * @param length the number of bytes to compare
+     * @return true if the bytes match exactly, false otherwise
+     */
+    public boolean equals(byte[] bytes, int offset, int length) {
+        if (bytes == null) {
+            return false;
+        }
+        
+        // Quick length check first
+        if (length != byteLength()) {
+            return false;
+        }
+        
+        // Compare byte by byte
+        if (directSlice != null) {
+            // Direct slice case - compare against the slice
+            byte[] sliceBytes = directSlice.getSource();
+            int sliceOffset = directSlice.getOffset();
+            for (int i = 0; i < length; i++) {
+                if (sliceBytes[sliceOffset + i] != bytes[offset + i]) {
+                    return false;
+                }
+            }
+        } else {
+            // AST-backed case - use cursor to access bytes
+            int start = astStore.getStart(nodeIndex);
+            for (int i = 0; i < length; i++) {
+                if (cursor.byteAt(start + i) != bytes[offset + i]) {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Compare this string view with a byte array without any allocations.
+     * 
+     * <p>Convenience method that compares against the entire byte array.</p>
+     * 
+     * @param bytes the byte array to compare against
+     * @return true if the bytes match exactly, false otherwise
+     */
+    public boolean equals(byte[] bytes) {
+        return bytes != null && equals(bytes, 0, bytes.length);
+    }
+    
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
