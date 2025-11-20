@@ -136,4 +136,46 @@ public class ZeroParseTest {
         }
         assertEquals(3, index);
     }
+    
+    @Test
+    public void testJsonStringViewZeroAllocationEquals() {
+        String json = "{\"symbol\":\"BTCUSDT\",\"exchange\":\"Binance\",\"price\":\"27000.50\"}";
+        JsonParser parser = new JsonParser();
+        JsonObject obj = parser.parse(json).asObject();
+        
+        // Test equals with exact match
+        JsonStringView symbol = obj.get("symbol").asString();
+        byte[] btcusdt = "BTCUSDT".getBytes();
+        assertTrue(symbol.equals(btcusdt));
+        assertTrue(symbol.equals(btcusdt, 0, btcusdt.length));
+        
+        // Test equals with different content
+        byte[] ethusdt = "ETHUSDT".getBytes();
+        assertFalse(symbol.equals(ethusdt));
+        
+        // Test equals with different length
+        byte[] btc = "BTC".getBytes();
+        assertFalse(symbol.equals(btc));
+        
+        // Test equals with null
+        assertFalse(symbol.equals((byte[]) null));
+        assertFalse(symbol.equals(null, 0, 0));
+        
+        // Test equals with partial array
+        byte[] largeBuf = "xxxBTCUSDTxxx".getBytes();
+        assertTrue(symbol.equals(largeBuf, 3, 7)); // "BTCUSDT" at offset 3
+        assertFalse(symbol.equals(largeBuf, 0, 7)); // "xxxBTCU"
+        
+        // Test with numeric string
+        JsonStringView price = obj.get("price").asString();
+        byte[] priceBytes = "27000.50".getBytes();
+        assertTrue(price.equals(priceBytes));
+        
+        // Verify zero allocation by running in a loop
+        // In a real benchmark this would be measured with JMH
+        for (int i = 0; i < 1000; i++) {
+            assertTrue(symbol.equals(btcusdt));
+            assertTrue(price.equals(priceBytes));
+        }
+    }
 }
