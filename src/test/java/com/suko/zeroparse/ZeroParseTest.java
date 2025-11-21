@@ -178,4 +178,52 @@ public class ZeroParseTest {
             assertTrue(price.equals(priceBytes));
         }
     }
+    
+    @Test
+    public void testJsonStringViewAppendMethods() throws Exception {
+        String json = "{\"simple\":\"Hello World\",\"escaped\":\"Line 1\\nLine 2\\tTabbed\",\"unicode\":\"Hello \\u4E16\\u754C\"}";
+        JsonParser parser = new JsonParser();
+        JsonObject obj = parser.parse(json).asObject();
+        
+        // Test getValue() method
+        JsonStringView simple = obj.get("simple").asString();
+        assertEquals("Hello World", simple.getValue());
+        
+        // Test appendTo(Appendable)
+        StringBuilder sb = new StringBuilder();
+        JsonStringView escaped = obj.get("escaped").asString();
+        escaped.appendTo(sb);
+        assertEquals("Line 1\nLine 2\tTabbed", sb.toString());
+        
+        // Test appendTo(Appendable) with chaining
+        sb.setLength(0); // Clear
+        simple.appendTo(sb).append(" - ").append("Added text");
+        assertEquals("Hello World - Added text", sb.toString());
+        
+        // Test appendTo(Buffer)
+        Buffer buffer = Buffer.buffer();
+        simple.appendTo(buffer);
+        assertEquals("Hello World", buffer.toString());
+        
+        // Test appendTo(Buffer) with escaped string
+        buffer = Buffer.buffer();
+        escaped.appendTo(buffer);
+        assertEquals("Line 1\nLine 2\tTabbed", buffer.toString());
+        
+        // Test appendTo(Buffer) with unicode
+        buffer = Buffer.buffer();
+        JsonStringView unicode = obj.get("unicode").asString();
+        unicode.appendTo(buffer);
+        assertEquals("Hello 世界", buffer.toString("UTF-8"));
+        
+        // Test chaining with Buffer
+        buffer = Buffer.buffer();
+        buffer.appendString("Start: ");
+        simple.appendTo(buffer).appendString(" :End");
+        assertEquals("Start: Hello World :End", buffer.toString());
+        
+        // Test null safety
+        assertThrows(NullPointerException.class, () -> simple.appendTo((Appendable) null));
+        assertThrows(NullPointerException.class, () -> simple.appendTo((Buffer) null));
+    }
 }
