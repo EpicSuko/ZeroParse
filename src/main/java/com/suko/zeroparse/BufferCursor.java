@@ -110,7 +110,7 @@ public final class BufferCursor implements InputCursor {
     }
     
     @Override
-    public Utf8Slice slice(int start, int length) {
+    public ByteSlice slice(int start, int length) {
         if (start < 0 || length < 0 || start + length > this.length) {
             throw new IndexOutOfBoundsException("Invalid slice: start=" + start + ", length=" + length + ", bufferLength=" + this.length);
         }
@@ -122,7 +122,7 @@ public final class BufferCursor implements InputCursor {
         }
         
         // Zero-copy slice using the cached byte array with offset
-        return new Utf8Slice(cachedBytes, offset + start, length);
+        return new ByteSlice(cachedBytes, offset + start, length);
     }
     
     @Override

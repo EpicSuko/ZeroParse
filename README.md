@@ -80,7 +80,7 @@ try (JsonParseContext ctx = JsonParseContext.get()) {
 ```java
 // String views provide zero-copy access
 JsonStringView str = obj.get("field").asString();
-Utf8Slice slice = str.slice(); // References original buffer (zero-copy)
+ByteSlice slice = str.slice(); // References original buffer (zero-copy)
 byte[] bytes = slice.getSource(); // Direct access to underlying bytes
 int length = slice.getLength(); // Slice length
 
@@ -194,7 +194,7 @@ All benchmarks run with JMH on: OpenJDK 21, Windows 11, AMD Ryzen 9 7950X
 - `JsonValue` - Base interface for all JSON values
 - `JsonObject` - JSON object with field access and lazy caching
 - `JsonArray` - JSON array with indexed element access
-- `JsonStringView` - Zero-copy string view with Utf8Slice
+- `JsonStringView` - Zero-copy string view with ByteSlice
 - `JsonNumberView` - Zero-copy number view with direct parsing
 - `JsonBoolean` - Boolean values (singletons: TRUE, FALSE)
 - `JsonNull` - Null value (singleton: NULL)
@@ -218,7 +218,7 @@ All benchmarks run with JMH on: OpenJDK 21, Windows 11, AMD Ryzen 9 7950X
 
 ### Zero-Copy Types
 
-- `Utf8Slice` - Zero-copy UTF-8 string slice with lazy String materialization
+- `ByteSlice` - Zero-copy UTF-8 string slice with lazy String materialization
 - `JsonArrayCursor` - Streaming array iterator
 
 ## Error Handling

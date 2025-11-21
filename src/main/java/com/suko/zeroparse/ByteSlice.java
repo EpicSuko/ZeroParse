@@ -3,16 +3,19 @@ package com.suko.zeroparse;
 import java.nio.charset.StandardCharsets;
 
 /**
- * A zero-copy UTF-8 string slice that references a portion of a source buffer.
+ * A zero-copy byte slice that references a portion of a source buffer.
  * 
- * <p>This class provides efficient access to UTF-8 encoded string data without
- * copying. The slice maintains a reference to the source buffer and stores
- * only the offset and length of the substring.</p>
+ * <p>This class provides efficient access to byte data without copying.
+ * The slice maintains a reference to the source buffer and stores only
+ * the offset and length of the subsequence.</p>
+ * 
+ * <p>While this class can represent bytes in any encoding, it provides
+ * convenience methods for UTF-8 decoding which is commonly used in JSON.</p>
  * 
  * <p>This class is immutable and thread-safe as long as the underlying
  * source buffer is not modified.</p>
  */
-public final class Utf8Slice {
+public final class ByteSlice {
     
     private byte[] source;
     private int offset;
@@ -21,20 +24,20 @@ public final class Utf8Slice {
     /**
      * Package-private constructor for pooled instances.
      */
-    public Utf8Slice() {
+    public ByteSlice() {
         this.source = null;
         this.offset = 0;
         this.length = 0;
     }
     
     /**
-     * Create a new UTF-8 slice.
+     * Create a new byte slice.
      * 
      * @param source the source byte array
      * @param offset the starting offset
      * @param length the length of the slice
      */
-    public Utf8Slice(byte[] source, int offset, int length) {
+    public ByteSlice(byte[] source, int offset, int length) {
         if (source == null) {
             throw new IllegalArgumentException("Source cannot be null");
         }
@@ -130,18 +133,18 @@ public final class Utf8Slice {
      * 
      * @param start the starting position within this slice
      * @param len the length of the sub-slice
-     * @return a new Utf8Slice
+     * @return a new ByteSlice
      * @throws IndexOutOfBoundsException if start or len is invalid
      */
-    public Utf8Slice subSlice(int start, int len) {
+    public ByteSlice subSlice(int start, int len) {
         if (start < 0 || len < 0 || start + len > length) {
             throw new IndexOutOfBoundsException("Invalid sub-slice: start=" + start + ", len=" + len + ", length=" + length);
         }
-        return new Utf8Slice(source, offset + start, len);
+        return new ByteSlice(source, offset + start, len);
     }
     
     /**
-     * Decode this slice to a String.
+     * Decode this slice to a String using UTF-8 encoding.
      * 
      * <p>This method performs UTF-8 decoding and may allocate memory.
      * Use this only when you need the actual String representation.</p>
@@ -161,7 +164,7 @@ public final class Utf8Slice {
      * @param other the other slice to compare
      * @return true if the slices contain the same bytes
      */
-    public boolean equals(Utf8Slice other) {
+    public boolean equals(ByteSlice other) {
         if (other == null) {
             return false;
         }
@@ -183,7 +186,7 @@ public final class Utf8Slice {
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (obj == null || getClass() != obj.getClass()) return false;
-        return equals((Utf8Slice) obj);
+        return equals((ByteSlice) obj);
     }
     
     @Override
@@ -209,6 +212,6 @@ public final class Utf8Slice {
      * @return debug information about the slice
      */
     public String toDebugString() {
-        return "Utf8Slice{offset=" + offset + ", length=" + length + "}";
+        return "ByteSlice{offset=" + offset + ", length=" + length + "}";
     }
 }

@@ -39,10 +39,10 @@ public interface InputCursor {
      * 
      * @param start the starting position
      * @param length the length of the slice
-     * @return a Utf8Slice representing the specified range
+     * @return a ByteSlice representing the specified range
      * @throws IndexOutOfBoundsException if start or length is invalid
      */
-    Utf8Slice slice(int start, int length);
+    ByteSlice slice(int start, int length);
     
     /**
      * Get direct access to the underlying byte array.

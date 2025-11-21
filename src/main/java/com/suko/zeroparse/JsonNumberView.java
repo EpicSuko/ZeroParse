@@ -18,7 +18,7 @@ public final class JsonNumberView implements JsonValue {
     protected InputCursor cursor;
     
     // Direct slice constructor
-    private Utf8Slice directSlice;
+    private ByteSlice directSlice;
     
     // Cached parsed values (for repeated access)
     private long cachedLong;
@@ -45,7 +45,7 @@ public final class JsonNumberView implements JsonValue {
     /**
      * Create a JsonNumberView from a direct slice.
      */
-    public JsonNumberView(Utf8Slice slice) {
+    public JsonNumberView(ByteSlice slice) {
         this.astStore = null;
         this.nodeIndex = -1;
         this.cursor = null;
@@ -101,7 +101,7 @@ public final class JsonNumberView implements JsonValue {
         return this;
     }
     
-    public Utf8Slice slice() {
+    public ByteSlice slice() {
         if (directSlice != null) {
             return directSlice;
         }
@@ -115,7 +115,7 @@ public final class JsonNumberView implements JsonValue {
             return !astStore.hasFlag(nodeIndex, AstStore.FLAG_NUMBER_FLOAT);
         }
         // Check if slice contains '.' or 'e'/'E'
-        Utf8Slice slice = slice();
+        ByteSlice slice = slice();
         for (int i = 0; i < slice.getLength(); i++) {
             byte b = slice.byteAt(i);
             if (b == '.' || b == 'e' || b == 'E') {
@@ -126,7 +126,7 @@ public final class JsonNumberView implements JsonValue {
     }
     
     public boolean isNegative() {
-        Utf8Slice slice = slice();
+        ByteSlice slice = slice();
         return slice.getLength() > 0 && slice.byteAt(0) == '-';
     }
     

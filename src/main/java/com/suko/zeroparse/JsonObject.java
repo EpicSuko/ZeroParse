@@ -11,7 +11,7 @@ import java.util.NoSuchElementException;
  * <p>This class uses AST-backed lazy evaluation for efficient parsing
  * without materializing all fields upfront.</p>
  */
-public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice, JsonValue>> {
+public final class JsonObject implements JsonValue, Iterable<Map.Entry<ByteSlice, JsonValue>> {
     
     // AST backing (mutable for pooling)
     protected AstStore astStore;
@@ -28,7 +28,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     
     // Field name slice cache (for repeated access optimization)
     // Only used when in a pooled context to avoid leaks
-    private Utf8Slice[] cachedFieldNames;
+    private ByteSlice[] cachedFieldNames;
     private boolean fieldNamesCached = false;
     
     
@@ -148,7 +148,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         return null;
     }
     
-    public JsonValue get(Utf8Slice name) {
+    public JsonValue get(ByteSlice name) {
         if (name == null) {
             return null;
         }
@@ -183,7 +183,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
             int valueIndex = astStore.getNextSibling(nameIndex);
             
             if (nameIndex != -1 && astStore.getType(nameIndex) == AstStore.TYPE_STRING) {
-                Utf8Slice fieldName = createFieldNameSlice(nameIndex);
+                ByteSlice fieldName = createFieldNameSlice(nameIndex);
                 if (fieldName.equals(name)) {
                     return createValueView(valueIndex);
                 }
@@ -292,12 +292,12 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         return get(name) != null;
     }
     
-    public boolean has(Utf8Slice name) {
+    public boolean has(ByteSlice name) {
         return get(name) != null;
     }
     
     @Override
-    public Iterator<Map.Entry<Utf8Slice, JsonValue>> iterator() {
+    public Iterator<Map.Entry<ByteSlice, JsonValue>> iterator() {
         return new FieldIterator();
     }
     
@@ -440,7 +440,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         fieldNamesCached = true;
     }
     
-    private Utf8Slice createFieldNameSlice(int nameIndex) {
+    private ByteSlice createFieldNameSlice(int nameIndex) {
         int start = astStore.getStart(nameIndex);
         int length = astStore.getEnd(nameIndex) - start;
         return cursor.slice(start, length);
@@ -448,7 +448,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
     
     /**
      * Compare a field name against a String by decoding UTF-8 on-the-fly.
-     * This avoids allocating a Utf8Slice or byte[] for comparison.
+     * This avoids allocating a ByteSlice or byte[] for comparison.
      * 
      * @param nameIndex the AST node index of the field name
      * @param queryString the String to compare against
@@ -591,8 +591,8 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
             return nameIndex1 == nameIndex2;
         }
         
-        Utf8Slice name1 = createFieldNameSlice(nameIndex1);
-        Utf8Slice name2 = createFieldNameSlice(nameIndex2);
+        ByteSlice name1 = createFieldNameSlice(nameIndex1);
+        ByteSlice name2 = createFieldNameSlice(nameIndex2);
         
         if (!name1.equals(name2)) {
             return false;
@@ -612,7 +612,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         return value1.equals(value2);
     }
     
-    private class FieldIterator implements Iterator<Map.Entry<Utf8Slice, JsonValue>> {
+    private class FieldIterator implements Iterator<Map.Entry<ByteSlice, JsonValue>> {
         private int childIndex = astStore.getFirstChild(nodeIndex);
         
         @Override
@@ -621,7 +621,7 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
         }
         
         @Override
-        public Map.Entry<Utf8Slice, JsonValue> next() {
+        public Map.Entry<ByteSlice, JsonValue> next() {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
@@ -629,14 +629,14 @@ public final class JsonObject implements JsonValue, Iterable<Map.Entry<Utf8Slice
             int nameIndex = astStore.getFirstChild(childIndex);
             int valueIndex = astStore.getNextSibling(nameIndex);
             
-            Utf8Slice name = createFieldNameSlice(nameIndex);
+            ByteSlice name = createFieldNameSlice(nameIndex);
             JsonValue value = createValueView(valueIndex);
             
             childIndex = astStore.getNextSibling(childIndex);
             
-            return new Map.Entry<Utf8Slice, JsonValue>() {
+            return new Map.Entry<ByteSlice, JsonValue>() {
                 @Override
-                public Utf8Slice getKey() {
+                public ByteSlice getKey() {
                     return name;
                 }
                 

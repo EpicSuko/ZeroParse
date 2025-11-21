@@ -283,7 +283,7 @@ public class MemoryProfilingExample {
     
     /**
      * Scenario 6: String Materialization
-     * Tests: Utf8Slice.toString(), String allocation patterns
+     * Tests: ByteSlice.toString(), String allocation patterns
      */
     private static void profileStringMaterialization() {
         String json = "{\"symbol\":\"BTCUSDT\",\"exchange\":\"binance\",\"type\":\"limit\",\"side\":\"buy\",\"price\":\"27000.50\",\"quantity\":\"1.23456789\"}";

@@ -1,6 +1,8 @@
 package com.suko.zeroparse;
 
 import com.suko.zeroparse.stack.AstStore;
+import io.vertx.core.buffer.Buffer;
+import java.io.IOException;
 
 /**
  * A JSON string with lazy, zero-copy access backed by an AST.
@@ -16,7 +18,7 @@ public final class JsonStringView implements JsonValue {
     protected InputCursor cursor;
     
     // Direct slice constructor for substring operations
-    private Utf8Slice directSlice;
+    private ByteSlice directSlice;
     
     // Cached parsed number values (for quoted numbers like {"price": "27000.5"})
     private long cachedLong;
@@ -43,7 +45,7 @@ public final class JsonStringView implements JsonValue {
     /**
      * Create a JsonStringView from a direct slice (for substrings).
      */
-    public JsonStringView(Utf8Slice slice) {
+    public JsonStringView(ByteSlice slice) {
         this.astStore = null;
         this.nodeIndex = -1;
         this.cursor = null;
@@ -77,7 +79,7 @@ public final class JsonStringView implements JsonValue {
         this.hasDoubleCache = false;
     }
 
-    void reset(Utf8Slice slice) {
+    void reset(ByteSlice slice) {
         this.astStore = null;
         this.nodeIndex = -1;
         this.cursor = null;
@@ -108,7 +110,7 @@ public final class JsonStringView implements JsonValue {
         return this;
     }
     
-    public Utf8Slice slice() {
+    public ByteSlice slice() {
         if (directSlice != null) {
             return directSlice;
         }
@@ -137,13 +139,13 @@ public final class JsonStringView implements JsonValue {
     }
     
     public JsonStringView subString(int start, int length) {
-        Utf8Slice slice = slice();
+        ByteSlice slice = slice();
         if (start == 0 && length == slice.getLength()) {
             return this;
         }
         byte[] source = slice.getSource();
         int offset = slice.getOffset() + start;
-        return new JsonStringView(new Utf8Slice(source, offset, length));
+        return new JsonStringView(new ByteSlice(source, offset, length));
     }
     
     public boolean equals(JsonStringView other) {
@@ -234,9 +236,22 @@ public final class JsonStringView implements JsonValue {
         return slice().hashCode();
     }
     
+    /**
+     * Get the string value of this JSON string.
+     * 
+     * <p>This is equivalent to toString() but provides a more explicit method name
+     * for getting the actual String value (as opposed to asString() which returns
+     * the JsonStringView itself).</p>
+     * 
+     * @return the string value, with escape sequences decoded if necessary
+     */
+    public String getValue() {
+        return toString();
+    }
+    
     @Override
     public String toString() {
-        Utf8Slice slice = slice();
+        ByteSlice slice = slice();
         
         // Check if string has escape sequences
         if (astStore != null && astStore.hasFlag(nodeIndex, AstStore.FLAG_STRING_ESCAPED)) {
@@ -246,7 +261,7 @@ public final class JsonStringView implements JsonValue {
         }
     }
     
-    private String decodeEscapedString(Utf8Slice slice) {
+    private String decodeEscapedString(ByteSlice slice) {
         StringBuilder sb = new StringBuilder();
         int length = slice.getLength();
         
@@ -267,19 +282,13 @@ public final class JsonStringView implements JsonValue {
                     case 'r':  sb.append('\r'); break;
                     case 't':  sb.append('\t'); break;
                     case 'u':
-                        // Unicode escape sequence
+                        // Unicode escape sequence - parse hex without String allocation
                         if (i + 4 < length) {
-                            try {
-                                String hex = new String(new byte[]{
-                                    slice.byteAt(i + 1),
-                                    slice.byteAt(i + 2),
-                                    slice.byteAt(i + 3),
-                                    slice.byteAt(i + 4)
-                                });
-                                int codePoint = Integer.parseInt(hex, 16);
+                            int codePoint = parseHexQuad(slice, i + 1);
+                            if (codePoint >= 0) {
                                 sb.append((char) codePoint);
                                 i += 4;
-                            } catch (NumberFormatException e) {
+                            } else {
                                 sb.append('\\').append((char) next);
                             }
                         } else {
@@ -296,6 +305,194 @@ public final class JsonStringView implements JsonValue {
         }
         
         return sb.toString();
+    }
+    
+    /**
+     * Append this string's contents to an Appendable without creating intermediate strings.
+     * 
+     * <p>This method provides zero-allocation appending for scenarios where you need
+     * to build larger strings or write to output streams.</p>
+     * 
+     * <p>For escaped strings, the decoded value will be appended.</p>
+     * 
+     * @param appendable the Appendable to append to (e.g., StringBuilder, Writer, etc.)
+     * @return the same Appendable for method chaining
+     * @throws IOException if the Appendable throws an IOException
+     */
+    public Appendable appendTo(Appendable appendable) throws IOException {
+        if (appendable == null) {
+            throw new NullPointerException("Appendable cannot be null");
+        }
+        
+        ByteSlice slice = slice();
+        
+        // Check if string has escape sequences
+        if (astStore != null && astStore.hasFlag(nodeIndex, AstStore.FLAG_STRING_ESCAPED)) {
+            // Need to decode escapes while appending
+            int length = slice.getLength();
+            
+            for (int i = 0; i < length; i++) {
+                byte b = slice.byteAt(i);
+                
+                if (b == '\\' && i + 1 < length) {
+                    i++; // Skip the backslash
+                    byte next = slice.byteAt(i);
+                    
+                    switch (next) {
+                        case '"':  appendable.append('"'); break;
+                        case '\\': appendable.append('\\'); break;
+                        case '/':  appendable.append('/'); break;
+                        case 'b':  appendable.append('\b'); break;
+                        case 'f':  appendable.append('\f'); break;
+                        case 'n':  appendable.append('\n'); break;
+                        case 'r':  appendable.append('\r'); break;
+                        case 't':  appendable.append('\t'); break;
+                        case 'u':
+                            // Unicode escape sequence - parse hex without String allocation
+                            if (i + 4 < length) {
+                                int codePoint = parseHexQuad(slice, i + 1);
+                                if (codePoint >= 0) {
+                                    appendable.append((char) codePoint);
+                                    i += 4;
+                                } else {
+                                    appendable.append('\\').append((char) next);
+                                }
+                            } else {
+                                appendable.append('\\').append((char) next);
+                            }
+                            break;
+                        default:
+                            appendable.append('\\').append((char) next);
+                            break;
+                    }
+                } else {
+                    appendable.append((char) b);
+                }
+            }
+        } else {
+            // No escape sequences - can append directly
+            // For better performance, append in chunks if the slice is large
+            byte[] bytes = slice.getSource();
+            int offset = slice.getOffset();
+            int length = slice.getLength();
+            
+            // Convert UTF-8 bytes to chars and append
+            for (int i = 0; i < length; i++) {
+                appendable.append((char) (bytes[offset + i] & 0xFF));
+            }
+        }
+        
+        return appendable;
+    }
+    
+    /**
+     * Append this string's contents to a Vert.x Buffer without creating intermediate strings.
+     * 
+     * <p>This method provides zero-allocation appending specifically for Vert.x Buffer,
+     * which is commonly used in reactive applications.</p>
+     * 
+     * <p>For escaped strings, the decoded UTF-8 bytes will be appended.</p>
+     * 
+     * @param buffer the Vert.x Buffer to append to
+     * @return the same Buffer for method chaining
+     */
+    public Buffer appendTo(Buffer buffer) {
+        if (buffer == null) {
+            throw new NullPointerException("Buffer cannot be null");
+        }
+        
+        ByteSlice slice = slice();
+        
+        // Check if string has escape sequences
+        if (astStore != null && astStore.hasFlag(nodeIndex, AstStore.FLAG_STRING_ESCAPED)) {
+            // Decode escapes while appending - completely garbage-free
+            int length = slice.getLength();
+            
+            for (int i = 0; i < length; i++) {
+                byte b = slice.byteAt(i);
+                
+                if (b == '\\' && i + 1 < length) {
+                    i++; // Skip the backslash
+                    byte next = slice.byteAt(i);
+                    
+                    switch (next) {
+                        case '"':  buffer.appendByte((byte) '"'); break;
+                        case '\\': buffer.appendByte((byte) '\\'); break;
+                        case '/':  buffer.appendByte((byte) '/'); break;
+                        case 'b':  buffer.appendByte((byte) '\b'); break;
+                        case 'f':  buffer.appendByte((byte) '\f'); break;
+                        case 'n':  buffer.appendByte((byte) '\n'); break;
+                        case 'r':  buffer.appendByte((byte) '\r'); break;
+                        case 't':  buffer.appendByte((byte) '\t'); break;
+                        case 'u':
+                            // Unicode escape sequence - parse hex without allocation
+                            if (i + 4 < length) {
+                                int codePoint = parseHexQuad(slice, i + 1);
+                                if (codePoint >= 0) {
+                                    // Encode codePoint as UTF-8 directly to buffer
+                                    if (codePoint < 0x80) {
+                                        buffer.appendByte((byte) codePoint);
+                                    } else if (codePoint < 0x800) {
+                                        buffer.appendByte((byte) (0xC0 | (codePoint >> 6)));
+                                        buffer.appendByte((byte) (0x80 | (codePoint & 0x3F)));
+                                    } else {
+                                        buffer.appendByte((byte) (0xE0 | (codePoint >> 12)));
+                                        buffer.appendByte((byte) (0x80 | ((codePoint >> 6) & 0x3F)));
+                                        buffer.appendByte((byte) (0x80 | (codePoint & 0x3F)));
+                                    }
+                                    i += 4;
+                                } else {
+                                    buffer.appendByte((byte) '\\');
+                                    buffer.appendByte(next);
+                                }
+                            } else {
+                                buffer.appendByte((byte) '\\');
+                                buffer.appendByte(next);
+                            }
+                            break;
+                        default:
+                            buffer.appendByte((byte) '\\');
+                            buffer.appendByte(next);
+                            break;
+                    }
+                } else {
+                    buffer.appendByte(b);
+                }
+            }
+        } else {
+            // No escape sequences - can append directly
+            buffer.appendBytes(slice.getSource(), slice.getOffset(), slice.getLength());
+        }
+        
+        return buffer;
+    }
+    
+    /**
+     * Parse a 4-digit hex sequence from the slice without any allocations.
+     * 
+     * @param slice the ByteSlice containing the hex digits
+     * @param offset the starting offset of the hex digits
+     * @return the parsed value, or -1 if invalid
+     */
+    private static int parseHexQuad(ByteSlice slice, int offset) {
+        int value = 0;
+        for (int j = 0; j < 4; j++) {
+            byte digit = slice.byteAt(offset + j);
+            int digitValue;
+            
+            if (digit >= '0' && digit <= '9') {
+                digitValue = digit - '0';
+            } else if (digit >= 'a' && digit <= 'f') {
+                digitValue = digit - 'a' + 10;
+            } else if (digit >= 'A' && digit <= 'F') {
+                digitValue = digit - 'A' + 10;
+            } else {
+                return -1; // Invalid hex digit
+            }
+            
+            value = (value << 4) | digitValue;
+        }
+        return value;
     }
     
     // ========== Zero-allocation number parsing methods ==========
@@ -439,7 +636,7 @@ public final class JsonStringView implements JsonValue {
      * @throws NumberFormatException if the string is not a valid number
      */
     public java.math.BigDecimal parseBigDecimal() {
-        Utf8Slice slice = slice();
+        ByteSlice slice = slice();
         return NumberParser.parseBigDecimal(slice.getSource(), slice.getOffset(), slice.getLength());
     }
     
@@ -453,7 +650,7 @@ public final class JsonStringView implements JsonValue {
      * @throws NumberFormatException if the string is not a valid number
      */
     public java.math.BigInteger parseBigInteger() {
-        Utf8Slice slice = slice();
+        ByteSlice slice = slice();
         return NumberParser.parseBigInteger(slice.getSource(), slice.getOffset(), slice.getLength());
     }
 }

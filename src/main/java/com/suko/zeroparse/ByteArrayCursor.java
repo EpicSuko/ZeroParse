@@ -92,7 +92,7 @@ public final class ByteArrayCursor implements InputCursor {
     }
     
     @Override
-    public Utf8Slice slice(int start, int sliceLength) {
+    public ByteSlice slice(int start, int sliceLength) {
         if (start < 0 || sliceLength < 0 || start + sliceLength > length) {
             throw new IndexOutOfBoundsException("Invalid slice: start=" + start + ", length=" + sliceLength + ", cursorLength=" + length);
         }
@@ -103,7 +103,7 @@ public final class ByteArrayCursor implements InputCursor {
             return ctx.borrowSlice(data, offset + start, sliceLength);
         }
         
-        return new Utf8Slice(data, offset + start, sliceLength);
+        return new ByteSlice(data, offset + start, sliceLength);
     }
     
     @Override

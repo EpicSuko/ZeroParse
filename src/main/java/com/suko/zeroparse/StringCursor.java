@@ -62,7 +62,7 @@ public final class StringCursor implements InputCursor {
     }
     
     @Override
-    public Utf8Slice slice(int start, int length) {
+    public ByteSlice slice(int start, int length) {
         if (start < 0 || length < 0 || start + length > string.length()) {
             throw new IndexOutOfBoundsException("Invalid slice: start=" + start + ", length=" + length + ", stringLength=" + string.length());
         }
@@ -73,7 +73,7 @@ public final class StringCursor implements InputCursor {
             return ctx.borrowSlice(utf8Bytes, start, length);
         }
         
-        return new Utf8Slice(utf8Bytes, start, length);
+        return new ByteSlice(utf8Bytes, start, length);
     }
     
     @Override

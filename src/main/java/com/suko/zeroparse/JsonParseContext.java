@@ -61,14 +61,14 @@ public final class JsonParseContext implements AutoCloseable {
     private List<Byte> overflowViewTypes;
     
     // Fixed array for slices (most JSON has < 32 slices)
-    private final Utf8Slice[] fixedSlices;
+    private final ByteSlice[] fixedSlices;
     private int fixedSliceCount;
     
     // Overflow list for large cases (lazy allocated)
-    private List<Utf8Slice> overflowSlices;
+    private List<ByteSlice> overflowSlices;
     
     // Fixed array pool for field name caches (reused across JsonObjects)
-    private final Utf8Slice[][] fieldNameArrayPool;
+    private final ByteSlice[][] fieldNameArrayPool;
     private int fieldNameArrayPoolIndex;
     private static final int MAX_FIELD_NAME_ARRAYS = 8;
     
@@ -107,12 +107,12 @@ public final class JsonParseContext implements AutoCloseable {
         this.fixedViews = new JsonValue[FIXED_CAPACITY];
         this.fixedViewTypes = new byte[FIXED_CAPACITY];
         this.viewCount = 0;
-        this.fixedSlices = new Utf8Slice[FIXED_SLICE_CAPACITY];
+        this.fixedSlices = new ByteSlice[FIXED_SLICE_CAPACITY];
         this.fixedSliceCount = 0;
         this.overflowViews = null;
         this.overflowViewTypes = null;
         this.overflowSlices = null;
-        this.fieldNameArrayPool = new Utf8Slice[MAX_FIELD_NAME_ARRAYS][];
+        this.fieldNameArrayPool = new ByteSlice[MAX_FIELD_NAME_ARRAYS][];
         this.fieldNameArrayPoolIndex = 0;
         this.fieldIndicesArrayPool = new int[MAX_FIELD_INDICES_ARRAYS][];
         this.fieldIndicesArrayPoolIndex = 0;
@@ -121,7 +121,7 @@ public final class JsonParseContext implements AutoCloseable {
         // Pre-allocate all arrays in the pools to avoid allocation during parsing
         // These arrays are reused across parses via the pool indices
         for (int i = 0; i < MAX_FIELD_NAME_ARRAYS; i++) {
-            fieldNameArrayPool[i] = new Utf8Slice[16];  // Support up to 16 fields per object
+            fieldNameArrayPool[i] = new ByteSlice[16];  // Support up to 16 fields per object
         }
         for (int i = 0; i < MAX_FIELD_INDICES_ARRAYS; i++) {
             fieldIndicesArrayPool[i] = new int[16];  // Support up to 16 fields per object
@@ -334,11 +334,11 @@ public final class JsonParseContext implements AutoCloseable {
     }
     
     /**
-     * Borrow a Utf8Slice from the pool and track it for automatic return.
+     * Borrow a ByteSlice from the pool and track it for automatic return.
      * This is used internally during parsing to create slices with zero allocation.
      */
-    Utf8Slice borrowSlice(byte[] source, int offset, int length) {
-        Utf8Slice slice = viewPools.borrowSlice(source, offset, length);
+    ByteSlice borrowSlice(byte[] source, int offset, int length) {
+        ByteSlice slice = viewPools.borrowSlice(source, offset, length);
         trackSlice(slice);
         return slice;
     }
@@ -346,7 +346,7 @@ public final class JsonParseContext implements AutoCloseable {
     /**
      * Borrow a pooled string view backed by the provided slice.
      */
-    JsonStringView borrowStringView(Utf8Slice slice) {
+    JsonStringView borrowStringView(ByteSlice slice) {
         JsonStringView view = viewPools.borrowString();
         view.reset(slice);
         addViewWithType(view, com.suko.zeroparse.stack.AstStore.TYPE_STRING);
@@ -357,22 +357,22 @@ public final class JsonParseContext implements AutoCloseable {
      * Borrow a pooled substring from an existing string view.
      */
     public JsonStringView borrowSubString(JsonStringView source, int start, int length) {
-        Utf8Slice base = source.slice();
-        Utf8Slice sub = viewPools.borrowSlice(base.getSource(), base.getOffset() + start, length);
+        ByteSlice base = source.slice();
+        ByteSlice sub = viewPools.borrowSlice(base.getSource(), base.getOffset() + start, length);
         return borrowStringView(sub);
     }
     
     /**
-     * Borrow or allocate a Utf8Slice array for field name caching.
+     * Borrow or allocate a ByteSlice array for field name caching.
      * Arrays are reused across multiple JsonObjects within the same context.
      * 
      * @param size the required array size
-     * @return a Utf8Slice array (reused or newly allocated)
+     * @return a ByteSlice array (reused or newly allocated)
      */
-    Utf8Slice[] borrowFieldNameArray(int size) {
+    ByteSlice[] borrowFieldNameArray(int size) {
         // Try to reuse from pre-allocated pool
         if (fieldNameArrayPoolIndex < MAX_FIELD_NAME_ARRAYS) {
-            Utf8Slice[] array = fieldNameArrayPool[fieldNameArrayPoolIndex];
+            ByteSlice[] array = fieldNameArrayPool[fieldNameArrayPoolIndex];
             if (array.length >= size) {
                 fieldNameArrayPoolIndex++;
                 return array;
@@ -381,7 +381,7 @@ public final class JsonParseContext implements AutoCloseable {
         
         // Pool exhausted - should not happen in normal cases
         // Return a fallback array (this would trigger allocation)
-        return new Utf8Slice[size];
+        return new ByteSlice[size];
     }
     
     /**
@@ -419,7 +419,7 @@ public final class JsonParseContext implements AutoCloseable {
     /**
      * Track a slice for automatic return on close.
      */
-    private void trackSlice(Utf8Slice slice) {
+    private void trackSlice(ByteSlice slice) {
         // Fixed array fast path
         if (fixedSliceCount < FIXED_SLICE_CAPACITY) {
             fixedSlices[fixedSliceCount++] = slice;
@@ -496,7 +496,7 @@ public final class JsonParseContext implements AutoCloseable {
             
             // Return slices from overflow list
             if (overflowSlices != null && !overflowSlices.isEmpty()) {
-                for (Utf8Slice slice : overflowSlices) {
+                for (ByteSlice slice : overflowSlices) {
                     viewPools.returnSlice(slice);
                 }
                 overflowSlices.clear();

@@ -33,7 +33,7 @@ public class ViewPools {
     private final ObjectPool<JsonArray> arrayPool;
     private final ObjectPool<JsonStringView> stringPool;
     private final ObjectPool<JsonNumberView> numberPool;
-    private final ObjectPool<Utf8Slice> slicePool;
+    private final ObjectPool<ByteSlice> slicePool;
     
     /**
      * Create a new set of view pools.
@@ -46,7 +46,7 @@ public class ViewPools {
         this.arrayPool = new ArrayObjectPool<>(ARRAY_STRIPES * ARRAY_STRIPE_SIZE, JsonArray.class);
         this.stringPool = new ArrayObjectPool<>(STRING_STRIPES * STRING_STRIPE_SIZE, JsonStringView.class);
         this.numberPool = new ArrayObjectPool<>(NUMBER_STRIPES * NUMBER_STRIPE_SIZE, JsonNumberView.class);
-        this.slicePool = new ArrayObjectPool<>(SLICE_STRIPES * SLICE_STRIPE_SIZE, Utf8Slice.class);
+        this.slicePool = new ArrayObjectPool<>(SLICE_STRIPES * SLICE_STRIPE_SIZE, ByteSlice.class);
     }
     
     /**
@@ -64,7 +64,7 @@ public class ViewPools {
         this.arrayPool = new ArrayObjectPool<>(arrayPoolSize, JsonArray.class);
         this.stringPool = new ArrayObjectPool<>(stringPoolSize, JsonStringView.class);
         this.numberPool = new ArrayObjectPool<>(numberPoolSize, JsonNumberView.class);
-        this.slicePool = new ArrayObjectPool<>(slicePoolSize, Utf8Slice.class);
+        this.slicePool = new ArrayObjectPool<>(slicePoolSize, ByteSlice.class);
     }
     
     /**
@@ -116,31 +116,31 @@ public class ViewPools {
     }
     
     /**
-     * Borrow a Utf8Slice from the pool.
+     * Borrow a ByteSlice from the pool.
      * The slice is returned uninitialized - caller must call reset().
      */
-    public Utf8Slice borrowSlice() {
+    public ByteSlice borrowSlice() {
         return slicePool.get();
     }
     
     /**
-     * Borrow a Utf8Slice from the pool and initialize it.
+     * Borrow a ByteSlice from the pool and initialize it.
      * 
      * @param source the source byte array
      * @param offset the starting offset
      * @param length the length of the slice
-     * @return a pooled and initialized Utf8Slice
+     * @return a pooled and initialized ByteSlice
      */
-    public Utf8Slice borrowSlice(byte[] source, int offset, int length) {
-        Utf8Slice slice = slicePool.get();
+    public ByteSlice borrowSlice(byte[] source, int offset, int length) {
+        ByteSlice slice = slicePool.get();
         slice.reset(source, offset, length);
         return slice;
     }
     
     /**
-     * Return a Utf8Slice back to the pool.
+     * Return a ByteSlice back to the pool.
      */
-    public void returnSlice(Utf8Slice slice) {
+    public void returnSlice(ByteSlice slice) {
         if (slice != null) {
             slicePool.release(slice);
         }
@@ -179,7 +179,7 @@ public class ViewPools {
         if (view instanceof JsonObject) {
             JsonObject obj = (JsonObject) view;
             // Return all field values first
-            for (java.util.Map.Entry<Utf8Slice, JsonValue> entry : obj) {
+            for (java.util.Map.Entry<ByteSlice, JsonValue> entry : obj) {
                 returnAll(entry.getValue());
             }
             objectPool.release(obj);
