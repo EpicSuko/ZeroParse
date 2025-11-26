@@ -14,6 +14,16 @@ A **zero-copy, AST-based JSON parser** optimized for high-throughput, low-latenc
 - **🧵 Thread-safe**: Lock-free MPMC pools via FastPool
 - **✅ RFC 8259 compliant**: Strict JSON validation with detailed error reporting
 
+## Project Structure
+
+ZeroParse is organized as a multi-module Maven project:
+
+```
+ZeroParse/
+├── zeroparse-core/       # Core JSON parser and writer library
+└── zeroparse-benchmark/  # Benchmarks and examples
+```
+
 ## Quick Start
 
 ### Maven Dependency
@@ -21,7 +31,7 @@ A **zero-copy, AST-based JSON parser** optimized for high-throughput, low-latenc
 ```xml
 <dependency>
     <groupId>com.suko.zeroparse</groupId>
-    <artifactId>zeroparse</artifactId>
+    <artifactId>zeroparse-core</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 </dependency>
 ```
@@ -290,11 +300,30 @@ public class OrderBookHandler extends AbstractVerticle {
 
 **Result**: Parse and process thousands of WebSocket messages per second with **zero GC pauses** and **predictable P99 latency**.
 
+## Building
+
+```bash
+# Build all modules
+mvn clean package
+
+# Install core library to local Maven repo
+mvn install -pl zeroparse-core
+
+# Run tests
+mvn test
+
+# Run benchmarks
+java -jar zeroparse-benchmark/target/benchmarks.jar
+
+# Run specific benchmark
+java -jar zeroparse-benchmark/target/benchmarks.jar ZeroParseBenchmark
+```
+
 ## Requirements
 
-- Java 11 or higher
-- [FastPool](https://github.com/EpicSuko/FastPool) 1.0.0+ (high-performance object pooling)
-- Vert.x Core 4.0.0+ (for Buffer support, optional)
+- Java 21 or higher
+- [FastPool](https://github.com/EpicSuko/FastPool) 2.0.0+ (high-performance object pooling)
+- Vert.x Core 5.0.0+ (for Buffer support)
 
 ## Why ZeroParse for Trading Systems?
 
