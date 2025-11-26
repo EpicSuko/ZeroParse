@@ -23,78 +23,17 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <vertx.version>5.0.1</vertx.version>
-        <jmh.version>1.37</jmh.version>
         <junit.version>5.10.0</junit.version>
     </properties>
 
-    <repositories>
-        <repository>
-            <id>github</id>
-            <url>https://maven.pkg.github.com/EpicSuko/FastPool</url>
-            <releases>
-                <enabled>true</enabled>
-            </releases>
-            <snapshots>
-                <enabled>true</enabled>
-            </snapshots>
-        </repository>
-    </repositories>
-
     <dependencyManagement>
         <dependencies>
-            <!-- FastPool for object pooling -->
-            <dependency>
-                <groupId>com.suko</groupId>
-                <artifactId>fastpool</artifactId>
-                <version>2.0.0</version>
-            </dependency>
-
-            <!-- Vert.x Buffer support -->
-            <dependency>
-                <groupId>io.vertx</groupId>
-                <artifactId>vertx-core</artifactId>
-                <version>${vertx.version}</version>
-            </dependency>
-
             <!-- Testing -->
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
                 <artifactId>junit-jupiter</artifactId>
                 <version>${junit.version}</version>
                 <scope>test</scope>
-            </dependency>
-
-            <!-- JMH for benchmarking -->
-            <dependency>
-                <groupId>org.openjdk.jmh</groupId>
-                <artifactId>jmh-core</artifactId>
-                <version>${jmh.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.openjdk.jmh</groupId>
-                <artifactId>jmh-generator-annprocess</artifactId>
-                <version>${jmh.version}</version>
-            </dependency>
-
-            <!-- FastJson2 for benchmarking comparison -->
-            <dependency>
-                <groupId>com.alibaba.fastjson2</groupId>
-                <artifactId>fastjson2</artifactId>
-                <version>2.0.43</version>
-            </dependency>
-
-            <!-- LazyJSON for benchmarking comparison -->
-            <dependency>
-                <groupId>me.doubledutch</groupId>
-                <artifactId>lazyjson</artifactId>
-                <version>2.3.2</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.jprofiler</groupId>
-                <artifactId>jprofiler-controller</artifactId>
-                <version>15.0.2</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

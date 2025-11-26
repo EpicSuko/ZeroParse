@@ -17,17 +17,37 @@
     <name>ZeroParse Core</name>
     <description>Zero-copy, pooled JSON parser and writer library</description>
 
+    <properties>
+        <vertx.version>5.0.1</vertx.version>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>github</id>
+            <url>https://maven.pkg.github.com/EpicSuko/FastPool</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
     <dependencies>
         <!-- FastPool for object pooling -->
         <dependency>
             <groupId>com.suko</groupId>
             <artifactId>fastpool</artifactId>
+            <version>2.0.0</version>
         </dependency>
 
-        <!-- Vert.x Buffer support -->
+        <!-- Vert.x Buffer support (provided by consumer project) -->
         <dependency>
             <groupId>io.vertx</groupId>
             <artifactId>vertx-core</artifactId>
+            <version>${vertx.version}</version>
+            <scope>provided</scope>
         </dependency>
 
         <!-- Testing -->
@@ -51,5 +71,3 @@
         </plugins>
     </build>
 </project>
-
-

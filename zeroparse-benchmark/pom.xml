@@ -17,6 +17,10 @@
     <name>ZeroParse Benchmarks</name>
     <description>Benchmarks and examples for ZeroParse</description>
 
+    <properties>
+        <jmh.version>1.37</jmh.version>
+    </properties>
+
     <dependencies>
         <!-- ZeroParse Core -->
         <dependency>
@@ -25,32 +29,44 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Vert.x (required since zeroparse-core marks it as provided) -->
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-core</artifactId>
+            <version>5.0.1</version>
+        </dependency>
+
         <!-- JMH for benchmarking -->
         <dependency>
             <groupId>org.openjdk.jmh</groupId>
             <artifactId>jmh-core</artifactId>
+            <version>${jmh.version}</version>
         </dependency>
         <dependency>
             <groupId>org.openjdk.jmh</groupId>
             <artifactId>jmh-generator-annprocess</artifactId>
+            <version>${jmh.version}</version>
         </dependency>
 
         <!-- FastJson2 for benchmarking comparison -->
         <dependency>
             <groupId>com.alibaba.fastjson2</groupId>
             <artifactId>fastjson2</artifactId>
+            <version>2.0.43</version>
         </dependency>
 
         <!-- LazyJSON for benchmarking comparison -->
         <dependency>
             <groupId>me.doubledutch</groupId>
             <artifactId>lazyjson</artifactId>
+            <version>2.3.2</version>
         </dependency>
 
         <!-- JProfiler -->
         <dependency>
             <groupId>com.jprofiler</groupId>
             <artifactId>jprofiler-controller</artifactId>
+            <version>15.0.2</version>
         </dependency>
 
         <!-- Testing -->
@@ -112,5 +128,3 @@
         </plugins>
     </build>
 </project>
-
-
