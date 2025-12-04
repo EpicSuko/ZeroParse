@@ -18,7 +18,7 @@
     <description>Zero-copy, pooled JSON parser and writer library</description>
 
     <properties>
-        <vertx.version>5.0.1</vertx.version>
+        <vertx.version>5.0.0</vertx.version>
     </properties>
 
     <repositories>
