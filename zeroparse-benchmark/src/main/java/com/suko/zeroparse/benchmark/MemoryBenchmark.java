@@ -1,5 +1,7 @@
 package com.suko.zeroparse.benchmark;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.vertx.core.buffer.Buffer;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
@@ -38,8 +40,14 @@ public class MemoryBenchmark {
     // Large message (deep nesting, many fields)
     private Buffer largeBuffer;
     
+    // ByteBuf variants for Netty-native benchmarks
+    private ByteBuf smallByteBufHeap;
+    private ByteBuf smallByteBufDirect;
+    private ByteBuf mediumByteBufHeap;
+    
     // Reusable pooled parse context for pooled benchmarks
     private JsonParseContext pooledContext;
+    
     @Setup
     public void setup() {
         // Small message: typical crypto order book snapshot
@@ -54,10 +62,26 @@ public class MemoryBenchmark {
         String largeJson = buildLargeJson();
         largeBuffer = Buffer.buffer(largeJson);
         
+        // Create ByteBuf variants
+        byte[] smallBytes = smallJson.getBytes();
+        smallByteBufHeap = Unpooled.copiedBuffer(smallBytes);
+        smallByteBufDirect = Unpooled.directBuffer(smallBytes.length);
+        smallByteBufDirect.writeBytes(smallBytes);
+        
+        byte[] mediumBytes = mediumJson.getBytes();
+        mediumByteBufHeap = Unpooled.copiedBuffer(mediumBytes);
+        
         // Create parser ONCE
         parser = new JsonParser();
         // Create a reusable context that shares the same parser (single-threaded JMH)
         pooledContext = new JsonParseContext(parser, new com.suko.zeroparse.ViewPools());
+    }
+    
+    @TearDown
+    public void tearDown() {
+        if (smallByteBufHeap != null) smallByteBufHeap.release();
+        if (smallByteBufDirect != null) smallByteBufDirect.release();
+        if (mediumByteBufHeap != null) mediumByteBufHeap.release();
     }
     
     private String buildLargeJson() {
@@ -92,6 +116,37 @@ public class MemoryBenchmark {
     public JsonValue zeroparseLargePooled(Blackhole bh) {
         pooledContext.close();
         return pooledContext.parse(largeBuffer);
+    }
+    
+    // ===== BYTEBUF POOLED BENCHMARKS (Direct Netty ByteBuf) =====
+    
+    @Benchmark
+    public JsonValue zeroparseSmallByteBufHeapPooled(Blackhole bh) {
+        pooledContext.close();
+        return pooledContext.parse(smallByteBufHeap);
+    }
+    
+    @Benchmark
+    public JsonValue zeroparseSmallByteBufDirectPooled(Blackhole bh) {
+        pooledContext.close();
+        return pooledContext.parse(smallByteBufDirect);
+    }
+    
+    @Benchmark
+    public JsonValue zeroparseMediumByteBufHeapPooled(Blackhole bh) {
+        pooledContext.close();
+        return pooledContext.parse(mediumByteBufHeap);
+    }
+    
+    @Benchmark
+    public void zeroparseSmallByteBufPooledParseAndAccess(Blackhole bh) {
+        pooledContext.close();
+        JsonValue root = pooledContext.parse(smallByteBufHeap);
+        if (root.isObject()) {
+            JsonObject obj = root.asObject();
+            bh.consume(obj.get("action"));
+            bh.consume(obj.get("data"));
+        }
     }
     
     @Benchmark

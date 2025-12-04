@@ -1,5 +1,7 @@
 package com.suko.zeroparse.benchmark;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.vertx.core.buffer.Buffer;
 import me.doubledutch.lazyjson.LazyObject;
 
@@ -34,6 +36,8 @@ public class ZeroParseBenchmark {
     private Buffer testBuffer;
     private String testString;
     private byte[] testBytes;
+    private ByteBuf testByteBufHeap;
+    private ByteBuf testByteBufDirect;
     private JsonParser parser;
     // Reusable context + pools for pooled benchmarks (single-threaded JMH usage)
     private JsonParseContext pooledContext;
@@ -46,10 +50,25 @@ public class ZeroParseBenchmark {
         testString = testBuffer.toString();
         testBytes = testBuffer.getBytes();
         
+        // Create ByteBuf variants (heap and direct)
+        testByteBufHeap = Unpooled.copiedBuffer(testBytes);
+        testByteBufDirect = Unpooled.directBuffer(testBytes.length);
+        testByteBufDirect.writeBytes(testBytes);
+        
         // Create parser ONCE in setup
         parser = new JsonParser();
         // Create a reusable context that shares the same parser (single-threaded JMH)
         pooledContext = new JsonParseContext(parser, new com.suko.zeroparse.ViewPools());
+    }
+    
+    @TearDown
+    public void tearDown() {
+        if (testByteBufHeap != null) {
+            testByteBufHeap.release();
+        }
+        if (testByteBufDirect != null) {
+            testByteBufDirect.release();
+        }
     }
 
     @Benchmark
@@ -71,6 +90,18 @@ public class ZeroParseBenchmark {
     public JsonValue parseFromByteArrayStack() {
         // Just parse - no setup overhead per iteration
         return parser.parse(testBytes, 0, testBytes.length);
+    }
+    
+    @Benchmark
+    public JsonValue parseFromByteBufHeap() {
+        // Parse from heap ByteBuf (zero-copy array access)
+        return parser.parse(testByteBufHeap);
+    }
+    
+    @Benchmark
+    public JsonValue parseFromByteBufDirect() {
+        // Parse from direct ByteBuf (requires copy to byte array)
+        return parser.parse(testByteBufDirect);
     }
 
     // FastJson2 benchmarks for comparison
@@ -109,6 +140,18 @@ public class ZeroParseBenchmark {
     public JsonValue parseFromByteArrayPooled() {
         pooledContext.close();
         return pooledContext.parse(testBytes);
+    }
+    
+    @Benchmark
+    public JsonValue parseFromByteBufHeapPooled() {
+        pooledContext.close();
+        return pooledContext.parse(testByteBufHeap);
+    }
+    
+    @Benchmark
+    public JsonValue parseFromByteBufDirectPooled() {
+        pooledContext.close();
+        return pooledContext.parse(testByteBufDirect);
     }
     
     // ===== NUMBER CACHING THROUGHPUT BENCHMARKS =====
