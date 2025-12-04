@@ -1,5 +1,7 @@
 package com.suko.zeroparse;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.vertx.core.buffer.Buffer;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
@@ -225,5 +227,123 @@ public class ZeroParseTest {
         // Test null safety
         assertThrows(NullPointerException.class, () -> simple.appendTo((Appendable) null));
         assertThrows(NullPointerException.class, () -> simple.appendTo((Buffer) null));
+    }
+    
+    // ===== ByteBuf Tests =====
+    
+    @Test
+    public void testParseFromByteBufHeap() {
+        String json = "{\"name\":\"test\",\"value\":42}";
+        ByteBuf byteBuf = Unpooled.copiedBuffer(json.getBytes());
+        
+        JsonValue root = new JsonParser().parse(byteBuf);
+        assertNotNull(root);
+        assertTrue(root.isObject());
+        
+        JsonObject obj = root.asObject();
+        assertEquals(2, obj.size());
+        assertEquals("test", obj.get("name").toString());
+        assertEquals(42, obj.get("value").asNumber().asInt());
+        
+        byteBuf.release();
+    }
+    
+    @Test
+    public void testParseFromByteBufDirect() {
+        String json = "{\"symbol\":\"BTCUSDT\",\"price\":27000.50}";
+        ByteBuf byteBuf = Unpooled.directBuffer();
+        byteBuf.writeBytes(json.getBytes());
+        
+        JsonValue root = new JsonParser().parse(byteBuf);
+        assertNotNull(root);
+        assertTrue(root.isObject());
+        
+        JsonObject obj = root.asObject();
+        assertEquals("BTCUSDT", obj.get("symbol").toString());
+        assertEquals(27000.50, obj.get("price").asNumber().asDouble(), 0.001);
+        
+        byteBuf.release();
+    }
+    
+    @Test
+    public void testParseFromByteBufWithContext() {
+        String json = "{\"action\":\"update\",\"data\":[1,2,3]}";
+        ByteBuf byteBuf = Unpooled.copiedBuffer(json.getBytes());
+        
+        JsonParseContext ctx = new JsonParseContext();
+        JsonValue root = ctx.parse(byteBuf);
+        
+        assertNotNull(root);
+        assertTrue(root.isObject());
+        
+        JsonObject obj = root.asObject();
+        assertEquals("update", obj.get("action").toString());
+        
+        JsonArray data = obj.get("data").asArray();
+        assertEquals(3, data.size());
+        assertEquals(1, data.get(0).asNumber().asInt());
+        assertEquals(2, data.get(1).asNumber().asInt());
+        assertEquals(3, data.get(2).asNumber().asInt());
+        
+        ctx.close();
+        byteBuf.release();
+    }
+    
+    @Test
+    public void testStreamArrayFromByteBuf() {
+        String json = "[{\"id\":1},{\"id\":2},{\"id\":3}]";
+        ByteBuf byteBuf = Unpooled.copiedBuffer(json.getBytes());
+        
+        JsonArrayCursor cursor = new JsonParser().streamArray(byteBuf);
+        assertNotNull(cursor);
+        assertEquals(3, cursor.size());
+        
+        int count = 0;
+        while (cursor.hasNext()) {
+            JsonValue element = cursor.next();
+            assertTrue(element.isObject());
+            count++;
+        }
+        assertEquals(3, count);
+        
+        byteBuf.release();
+    }
+    
+    @Test
+    public void testStreamArrayFromByteBufWithContext() {
+        String json = "[{\"symbol\":\"BTC\"},{\"symbol\":\"ETH\"}]";
+        ByteBuf byteBuf = Unpooled.copiedBuffer(json.getBytes());
+        
+        JsonParseContext ctx = new JsonParseContext();
+        JsonArrayCursor cursor = ctx.streamArray(byteBuf);
+        
+        assertNotNull(cursor);
+        assertEquals(2, cursor.size());
+        
+        assertTrue(cursor.hasNext());
+        assertEquals("BTC", cursor.next().asObject().get("symbol").toString());
+        assertTrue(cursor.hasNext());
+        assertEquals("ETH", cursor.next().asObject().get("symbol").toString());
+        assertFalse(cursor.hasNext());
+        
+        ctx.close();
+        byteBuf.release();
+    }
+    
+    @Test
+    public void testByteBufCursorReuse() {
+        JsonParser parser = new JsonParser();
+        
+        String json1 = "{\"msg\":\"first\"}";
+        ByteBuf buf1 = Unpooled.copiedBuffer(json1.getBytes());
+        JsonValue root1 = parser.parse(buf1);
+        assertEquals("first", root1.asObject().get("msg").toString());
+        buf1.release();
+        
+        String json2 = "{\"msg\":\"second\"}";
+        ByteBuf buf2 = Unpooled.copiedBuffer(json2.getBytes());
+        JsonValue root2 = parser.parse(buf2);
+        assertEquals("second", root2.asObject().get("msg").toString());
+        buf2.release();
     }
 }
