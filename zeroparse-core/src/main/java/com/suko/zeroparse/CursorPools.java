@@ -1,5 +1,6 @@
 package com.suko.zeroparse;
 
+import io.netty.buffer.ByteBuf;
 import io.vertx.core.buffer.Buffer;
 import com.suko.pool.ArrayObjectPool;
 import com.suko.pool.ObjectPool;
@@ -14,15 +15,18 @@ import com.suko.pool.ObjectPool;
 public class CursorPools {
     
     private static final int BUFFER_POOL_SIZE = 32;
+    private static final int BYTE_BUF_POOL_SIZE = 32;
     private static final int BYTE_ARRAY_POOL_SIZE = 64;
     private static final int STRING_POOL_SIZE = 32;
     
     private final ObjectPool<BufferCursor> bufferPool;
+    private final ObjectPool<ByteBufCursor> byteBufPool;
     private final ObjectPool<ByteArrayCursor> byteArrayPool;
     private final ObjectPool<StringCursor> stringPool;
     
     public CursorPools() {
         this.bufferPool = new ArrayObjectPool<>(BUFFER_POOL_SIZE, BufferCursor.class);
+        this.byteBufPool = new ArrayObjectPool<>(BYTE_BUF_POOL_SIZE, ByteBufCursor.class);
         this.byteArrayPool = new ArrayObjectPool<>(BYTE_ARRAY_POOL_SIZE, ByteArrayCursor.class);
         this.stringPool = new ArrayObjectPool<>(STRING_POOL_SIZE, StringCursor.class);
     }
@@ -31,11 +35,13 @@ public class CursorPools {
      * Create cursor pools with custom sizes for HFT or other specialized use cases.
      * 
      * @param bufferPoolSize size of the buffer cursor pool
+     * @param byteBufPoolSize size of the ByteBuf cursor pool
      * @param byteArrayPoolSize size of the byte array cursor pool
      * @param stringPoolSize size of the string cursor pool
      */
-    protected CursorPools(int bufferPoolSize, int byteArrayPoolSize, int stringPoolSize) {
+    protected CursorPools(int bufferPoolSize, int byteBufPoolSize, int byteArrayPoolSize, int stringPoolSize) {
         this.bufferPool = new ArrayObjectPool<>(bufferPoolSize, BufferCursor.class);
+        this.byteBufPool = new ArrayObjectPool<>(byteBufPoolSize, ByteBufCursor.class);
         this.byteArrayPool = new ArrayObjectPool<>(byteArrayPoolSize, ByteArrayCursor.class);
         this.stringPool = new ArrayObjectPool<>(stringPoolSize, StringCursor.class);
     }
@@ -49,6 +55,18 @@ public class CursorPools {
     public void returnBufferCursor(BufferCursor cursor) {
         if (cursor != null) {
             bufferPool.release(cursor);
+        }
+    }
+    
+    public ByteBufCursor borrowByteBufCursor(ByteBuf byteBuf) {
+        ByteBufCursor cursor = byteBufPool.get();
+        cursor.reset(byteBuf);
+        return cursor;
+    }
+    
+    public void returnByteBufCursor(ByteBufCursor cursor) {
+        if (cursor != null) {
+            byteBufPool.release(cursor);
         }
     }
     

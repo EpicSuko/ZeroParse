@@ -1,5 +1,6 @@
 package com.suko.zeroparse;
 
+import io.netty.buffer.ByteBuf;
 import io.vertx.core.buffer.Buffer;
 import com.suko.zeroparse.stack.StackTokenizer;
 import com.suko.zeroparse.stack.AstStore;
@@ -60,6 +61,41 @@ public final class JsonParser {
         } finally {
             cursor.setContext(null);
             cursorPools.returnBufferCursor(cursor);
+        }
+    }
+    
+    /**
+     * Parse JSON from a Netty ByteBuf.
+     * Uses a pooled ByteBufCursor for zero-allocation parsing.
+     * 
+     * @param byteBuf the ByteBuf containing UTF-8 encoded JSON
+     * @return the parsed JSON value
+     * @throws JsonParseException if the JSON is invalid
+     */
+    public JsonValue parse(ByteBuf byteBuf) {
+        if (byteBuf == null) {
+            throw new IllegalArgumentException("ByteBuf cannot be null");
+        }
+        ByteBufCursor cursor = cursorPools.borrowByteBufCursor(byteBuf);
+        try {
+            return parse(cursor);
+        } finally {
+            cursorPools.returnByteBufCursor(cursor);
+        }
+    }
+
+    // Package-private helper used by JsonParseContext for pooled parsing
+    JsonValue parse(ByteBuf byteBuf, JsonParseContext context) {
+        if (byteBuf == null) {
+            throw new IllegalArgumentException("ByteBuf cannot be null");
+        }
+        ByteBufCursor cursor = cursorPools.borrowByteBufCursor(byteBuf);
+        try {
+            cursor.setContext(context);
+            return parse(cursor, context);
+        } finally {
+            cursor.setContext(null);
+            cursorPools.returnByteBufCursor(cursor);
         }
     }
     
@@ -262,6 +298,41 @@ public final class JsonParser {
         } finally {
             cursor.setContext(null);
             cursorPools.returnBufferCursor(cursor);
+        }
+    }
+    
+    /**
+     * Create a streaming array cursor for element-by-element extraction.
+     * Uses a pooled ByteBufCursor for zero-allocation parsing.
+     * 
+     * @param byteBuf the ByteBuf containing a JSON array
+     * @return a cursor for streaming array elements
+     * @throws JsonParseException if the JSON is invalid or not an array
+     */
+    public JsonArrayCursor streamArray(ByteBuf byteBuf) {
+        if (byteBuf == null) {
+            throw new IllegalArgumentException("ByteBuf cannot be null");
+        }
+        ByteBufCursor cursor = cursorPools.borrowByteBufCursor(byteBuf);
+        try {
+            return streamArray(cursor, null);
+        } finally {
+            cursorPools.returnByteBufCursor(cursor);
+        }
+    }
+
+    // Package-private helper used by JsonParseContext for pooled streaming
+    JsonArrayCursor streamArray(ByteBuf byteBuf, JsonParseContext context) {
+        if (byteBuf == null) {
+            throw new IllegalArgumentException("ByteBuf cannot be null");
+        }
+        ByteBufCursor cursor = cursorPools.borrowByteBufCursor(byteBuf);
+        try {
+            cursor.setContext(context);
+            return streamArray(cursor, context);
+        } finally {
+            cursor.setContext(null);
+            cursorPools.returnByteBufCursor(cursor);
         }
     }
     

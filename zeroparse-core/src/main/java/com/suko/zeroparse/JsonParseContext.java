@@ -1,5 +1,6 @@
 package com.suko.zeroparse;
 
+import io.netty.buffer.ByteBuf;
 import io.vertx.core.buffer.Buffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -167,6 +168,23 @@ public final class JsonParseContext implements AutoCloseable {
     }
     
     /**
+     * Parse JSON from a Netty ByteBuf.
+     * All view objects created during parsing are tracked and will be
+     * automatically returned to the pool when this context is closed.
+     * 
+     * @param byteBuf the ByteBuf containing JSON data
+     * @return the root JSON value
+     * @throws JsonParseException if parsing fails
+     */
+    public JsonValue parse(ByteBuf byteBuf) {
+        reset();
+        JsonValue root = parser.parse(byteBuf, this);
+        // trackView(root) removed - already tracked in borrowView
+        setContextOnRoot(root);
+        return root;
+    }
+    
+    /**
      * Parse JSON from a String.
      * All view objects created during parsing are tracked and will be
      * automatically returned to the pool when this context is closed.
@@ -226,6 +244,15 @@ public final class JsonParseContext implements AutoCloseable {
     public JsonArrayCursor streamArray(Buffer buffer) {
         reset();
         return parser.streamArray(buffer, this);
+    }
+    
+    /**
+     * Stream a JSON array from a Netty ByteBuf using this context.
+     * All views created from the streamed array are pooled and returned on close().
+     */
+    public JsonArrayCursor streamArray(ByteBuf byteBuf) {
+        reset();
+        return parser.streamArray(byteBuf, this);
     }
 
     /**
